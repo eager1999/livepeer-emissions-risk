@@ -16,7 +16,7 @@ A smarter generalisation replaces the instantaneous observation with an average 
 
 For some variables, we would also like to formulate *maintenance objectives* which involve regular measurements from the decision date until the objective horizon. The measurements are defined by some tick set $T_m\subset [T^-,T^+]$. Typically, the measurement tick set will be a subset of the data tick set.
 
-After all measurements are taken, each acceptance criterion $X\in\mathcal{A}$ defines a subset $T_{X\in\mathcal{A}}\subseteq T_m$ of ticks at which the measurements satisfied the criterion. Maintenance objectives are then defined by conditioning on the hitting set $T_{X\in\mathcal{A}}$.
+After all measurements are taken, each acceptance criterion $X\in\mathcal{A}$ defines a *visit set* $T_{X\in\mathcal{A}}\subseteq T_m$ of ticks at which the measurements satisfied the criterion. Maintenance objectives are then defined by conditioning on the visit times $T_{X\in\mathcal{A}}$.
 
 A basic criterion is
 $$
@@ -56,7 +56,7 @@ What exactly is measured on each measurement tick? The resolution of our data is
 
 ### Goalpost objectives
 
-Community discussions have centered around the matter of *reducing* emissions or yield. Implicit in this is the idea that the current emissions are not in the acceptable range for long term protocol health — a transformation is needed. To quantify this, we introduce the goalpost objectives:
+Community discussions have centered around the matter of *reducing* emissions or yield. Implicit in this is the idea that the current emissions are not in the acceptable range for long term protocol health — a transformation is needed. To quantify this, we introduce the emissions and yield target objectives:
 
 * (ET) — $E \leq \tau_E$ at measurement end date. The corresponding acceptance set is $\mathcal{A}_E = [0,\tau_E]$.
 * (YT) — $Y \leq \tau_Y$ at measurement end date. The acceptance set is $\mathcal{A}_Y = [0,\tau_Y]$.
@@ -69,9 +69,8 @@ Suppose given objective parameters $0\leq\tilde\tau_P \leq \tau_P \leq 1$. The p
 * $\tau_P$ is the *attention threshold.* If participation drops below $\tau_P$, the community should meet and decide whether action needs to be taken.
 * $\tilde\tau_P$ is the *response threshold.* If participation drops below $\tilde\tau_P$, the community must respond urgently.
 
-Define the *maintenance threshold* by $p=7/8$. We allow participation to drop below the attention threshold for one of the eight observations.
 
-Objectives:
+Here are the participation maintenance objectives:
 
-* (PM1) — $\# T_{P\in\mathcal{A}_P} \geq 7$
-* (PM2) — $T_{P\in\tilde{\mathcal{A}}_P} = T_m$
+* (PM1) — $\# T_{P\in\mathcal{A}_P} \geq 7$. That is, $P$ exceeds the attention threshold for at least 7 of the 8 months. This corresponds to a maintenance threshold of $p=7/8$.
+* (PM2) — $T_{P\in\tilde{\mathcal{A}}_P} = T_m$. That is, $P$ exceeds the response threshold for all eight months.
