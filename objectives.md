@@ -20,7 +20,7 @@ After all measurements are taken, each acceptance criterion $X\in\mathcal{A}$ de
 
 A basic criterion is
 $$
-\frac{\#T_{X\in\mathcal{A}}}{\#T} \geq p
+\frac{|T_{X\in\mathcal{A}}|}{|T|} \geq p
 $$
 for some target $p\in[0,1]$.
 
@@ -59,7 +59,14 @@ What exactly is measured on each measurement tick? The resolution of our data is
 Community discussions have centered around the matter of *reducing* emissions or yield. Implicit in this is the idea that the current emissions are not in the acceptable range for long term protocol health — a transformation is needed. To quantify this, we introduce the emissions and yield target objectives:
 
 * (ET) — $E \leq \tau_E$ at measurement end date. The corresponding acceptance set is $\mathcal{A}_E = [0,\tau_E]$.
+  
 * (YT) — $Y \leq \tau_Y$ at measurement end date. The acceptance set is $\mathcal{A}_Y = [0,\tau_Y]$.
+
+In Python pseudocode:
+```python
+OBJ_ET = emissions[MEASUREMENT_END_DATE] <= EMISSIONS_TAR_UPPER
+OBJ_YT = stake_yield[MEASUREMENT_END_DATE] <= YIELD_TAR_UPPER
+```
 
 ### Maintenance objectives
 
@@ -72,5 +79,13 @@ Suppose given objective parameters $0\leq\tilde\tau_P \leq \tau_P \leq 1$. The p
 
 Here are the participation maintenance objectives:
 
-* (PM1) — $\# T_{P\in\mathcal{A}_P} \geq 7$. That is, $P$ exceeds the attention threshold for at least 7 of the 8 months. This corresponds to a maintenance threshold of $p=7/8$.
-* (PM2) — $T_{P\in\tilde{\mathcal{A}}_P} = T_m$. That is, $P$ exceeds the response threshold for all eight months.
+* (PM1) — $|T_{P\in\mathcal{A}_P}| \geq 7$. That is, $P$ exceeds the attention threshold for at least 7 of the 8 months. This corresponds to a maintenance threshold of $p=7/8$.
+* (PM2) — $|T_{P\in\tilde{\mathcal{A}}_P}| \geq 8$. That is, $P$ exceeds the response threshold for all eight months.
+
+In Python pseudocode:
+
+```python
+OBJ_PM1 = len(visit_times(participation, ATTENTION_PARTICIPATION) >= 7
+OBJ_PM2 = len(visit_times(participation, RESPOND_PARTICIPATION)) >= 8
+```
+where `visit_times(x,A)` is a function returning the set of measurement ticks for which `x in A`.
