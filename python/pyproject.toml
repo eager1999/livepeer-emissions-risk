@@ -1,0 +1,20 @@
+[project]
+name = "lpt-stake"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "altair>=5.5.0",
+    "arrow>=1.4.0",
+    "marimo>=0.11.19",
+    "matplotlib>=3.10.1",
+    "pandas>=2.2.3",
+    "polars>=1.26.0",
+    "pytz>=2025.1",
+    "requests>=2.32.5",
+    "scipy>=1.15.2",
+    "statsmodels>=0.14.4",
+    "urllib3>=2.3.0",
+    "web3>=7.9.0",
+]
