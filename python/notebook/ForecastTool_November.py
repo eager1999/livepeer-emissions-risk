@@ -5,12 +5,13 @@
 
 import marimo
 
-__generated_with = "0.17.2"
+__generated_with = "0.17.7"
 app = marimo.App(width="medium")
 
 
 @app.cell
 def _():
+    import os
     import marimo as mo
     import pandas as pd
     import numpy as np
@@ -18,18 +19,19 @@ def _():
     from datetime import datetime, timedelta
 
     from sklearn.linear_model import RidgeCV
-
-    return RidgeCV, mo, np, pd, plt
+    return RidgeCV, mo, np, os, pd, plt
 
 
 @app.cell
 def _(mo):
-    mo.md("""# Forecast Tool""")
+    mo.md("""
+    # Forecast Tool
+    """)
     return
 
 
 @app.cell
-def _(mo, pd):
+def _(mo, os, pd):
     def params():
         # Policy / simulation params
         sigma = 0.0000005 # inflation change step per round
@@ -52,7 +54,7 @@ def _(mo, pd):
         eps_tail = 0.05 # allowed probability of exceeding Ttail across sims
         gamma_star = 0.25 # target emission rate
         yield_star = 0.4 # target yield rate
-    
+
         return dict(sigma=sigma, P_star=P_star, gamma_min=gamma_min, gamma_max=gamma_max,
                     horizon_days=horizon_days, n_sims=n_sims,
                     random_seed=random_seed, Plow=Plow, Phigh=Phigh,
@@ -62,7 +64,7 @@ def _(mo, pd):
     # ------------------------------------------------------------
     # Load and prepare data
     # ------------------------------------------------------------
-    path = "/Users/sazisbekuu/Downloads/ShtukaResearch/DATA.csv"    # adjust path if needed
+    path = os.getenv("LPT_DATA_SOURCE")    # adjust path if needed
     df_raw = pd.read_csv(path)
 
     df_raw["date"] = pd.to_datetime(df_raw["date"], errors="coerce")
@@ -84,13 +86,14 @@ def _(mo, pd):
 
     df = df.dropna(subset=[p_col, g_col])
     mo.ui.data_explorer(df)
-
     return df, params
 
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Data Preparation""")
+    mo.md(r"""
+    # Data Preparation
+    """)
     return
 
 
@@ -105,7 +108,7 @@ def _(df, mo, np, pd, plt):
 
         # Fill NaN in those columns with their respective mean
         df2['fear-greed-index'] = df2['fear-greed-index'].fillna(df2['fear-greed-index'].mean())
-    
+
         df2.rename(columns={'participation-rate': 'P'}, inplace=True)
         df2.rename(columns={'annual_inflation_rate': 'I'}, inplace=True)
         df2['Y'] = np.log(df2['P']/(1-df2['P']))
@@ -131,7 +134,7 @@ def _(df, mo, np, pd, plt):
         else:
             X['P_t'] = df2['P']
             y = df2['P_next'].values
-        
+
         X['I_t'] = df2['I']
         for c in exog_cols:
             if c not in ['intercept', 'Y_t', 'logP_t', 'P_t','I_t']:
@@ -144,7 +147,7 @@ def _(df, mo, np, pd, plt):
         cutoff_loc = X.index.get_loc(cutoff)
         y_train = y[:cutoff_loc + 1]
         y_test = y[cutoff_loc + 1:]
-    
+
         return X_train, y_train, X_test, y_test
 
     # Date picker UI
@@ -182,7 +185,6 @@ def _(df, mo, np, pd, plt):
     plt.plot(X['Y_t'])
     plt.plot(X.index,y)
     plt.show()'''
-
     return date_picker, plot_and_split, prepare_data
 
 
@@ -198,7 +200,9 @@ def _(date_picker, mo, plot_and_split):
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Estimation""")
+    mo.md(r"""
+    # Estimation
+    """)
     return
 
 
@@ -224,7 +228,7 @@ def _(RidgeCV, df, np):
         # ridge closed form: theta = (X^T X + lambda * I)^{-1} X^T y
         I = np.eye(n_features)
         I[0,0] = 0 # don't regularize intercept
-    
+
         beta = np.linalg.inv(X.T @ X + best_lambda * I) @ X.T @ y
 
         # split coefficients
@@ -250,7 +254,9 @@ def _(RidgeCV, df, np):
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Simulation""")
+    mo.md(r"""
+    # Simulation
+    """)
     return
 
 
@@ -274,7 +280,7 @@ def _(
     def sample_exog(series, n_paths, horizon, method="bootstrap", block_size=None, random_state=None):
         """
         Simulate future paths for a single exogenous variable using block bootstrap or AR(1).
-    
+
         Parameters:
         -----------
         series : pd.Series
@@ -289,7 +295,7 @@ def _(
             Block size for bootstrap (required if method="bootstrap").
         random_state : int or None
             Seed for reproducibility.
-    
+
         Returns:
         --------
         np.ndarray
@@ -297,17 +303,17 @@ def _(
         """
         if random_state is not None:
             np.random.seed(random_state)
-    
+
         data = series.values
         n_obs = len(data)
         samples = np.zeros((n_paths, horizon))
-    
+
         if method == "bootstrap":
             if block_size is None:
                 raise ValueError("block_size must be provided for bootstrap method.")
-        
+
             num_blocks = int(np.ceil(horizon / block_size))
-        
+
             for path in range(n_paths):
                 blocks = []
                 for _ in range(num_blocks):
@@ -316,7 +322,7 @@ def _(
                     blocks.append(block)
                 sample = np.concatenate(blocks)[:horizon]
                 samples[path] = sample
-    
+
         elif method == "ar1":
             # Fit AR(1): y_t = phi * y_{t-1} + epsilon
             y_lag = data[:-1]
@@ -324,17 +330,17 @@ def _(
             phi = np.dot(y_lag, y_curr) / np.dot(y_lag, y_lag)
             sigma = np.std(y_curr - phi * y_lag)
             last_val = data[-1]
-        
+
             for path in range(n_paths):
                 sim = [last_val]
                 for _ in range(horizon - 1):
                     next_val = phi * sim[-1] + np.random.normal(0, sigma)
                     sim.append(next_val)
                 samples[path] = sim
-    
+
         else:
             raise ValueError("method must be either 'bootstrap' or 'ar1'.")
-    
+
         return samples
 
 
@@ -362,7 +368,7 @@ def _(
         else: 
             P0 = X['P_t'].iloc[-1]
             beta_P = coef['P_t']
-        
+
         I0 = X['I_t'].iloc[-1]
 
 
@@ -397,7 +403,7 @@ def _(
             P_t = P_paths[:, t]
             I_t = I_paths[:, t]
 
-            
+
             # build X_t: shape (n, n_features)
             '''X_t = np.ones((n, len(exog_variables)))
             X_t[:,Y_idx] = Y_t
@@ -407,11 +413,11 @@ def _(
 
             # dynamics for Y_{t+1}
             Y_mean = beta_intercept + beta_P * P_t + beta_I * I_t + (exog_vals @ beta_exog).ravel()
-        
+
             #Y_mean = X_t @ theta_vec
             eps = np.random.randn(n) * ridge_eps
             Y_next = Y_mean + eps
-        
+
             if target_col == 'logit':
                 P_curr = 1/(1+np.exp(-P_t))
             elif target_col == 'log':
@@ -435,7 +441,7 @@ def _(
         elif target_col == 'log':
             P_paths = np.exp(P_paths)
             y_test = np.exp(y_test)
-    
+
         return P_paths, I_paths, X_future, X_test, y_test, coef
 
 
@@ -449,48 +455,47 @@ def _(
         parameters['sigma'] = slider_sigma.value * 1e-9   # adjust to the correct value (ppb)
         parameters['n_sims'] = int(radio_paths.value)
         parameters['horizon_days'] = int(radio_horizon.value)
-    
+
         P_paths, I_paths, X_paths, X_test, y_test, optimal_beta = simulate(df, 'logit', exog_cols, parameters)
-    
+
         # Create subplots with shared x-axis
         fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
-    
+
         horizon = parameters['horizon_days']
         p10 = np.percentile(P_paths, 10, axis=0)
         p25 = np.percentile(P_paths, 25, axis=0)
         p50 = np.percentile(P_paths, 50, axis=0)
         p75 = np.percentile(P_paths, 75, axis=0)
         p90 = np.percentile(P_paths, 90, axis=0)
-    
+
         ax1.fill_between(range(0, horizon + 1), p10, p90, color='skyblue', alpha=0.4, label='90% interval')
         ax1.fill_between(range(0, horizon + 1), p25, p75, color='dodgerblue', alpha=0.6, label='50% interval')
         ax1.plot(range(0, horizon + 1), p50, color='blue', linewidth=2, label='Median')
         ax1.plot(range(0, len(y_test)), y_test, color='red', linewidth=2, label='True Value')
-    
+
         ax1.set_ylabel('Participation Rate')
         ax1.set_title('Forecast Fan Charts')
-    
+
         # Plot on second axis
         p10 = np.percentile(I_paths, 10, axis=0)
         p25 = np.percentile(I_paths, 25, axis=0)
         p50 = np.percentile(I_paths, 50, axis=0)
         p75 = np.percentile(I_paths, 75, axis=0)
         p90 = np.percentile(I_paths, 90, axis=0)
-    
+
         ax2.fill_between(range(0, horizon + 1), p10, p90, color='skyblue', alpha=0.4, label='90% interval')
         ax2.fill_between(range(0, horizon + 1), p25, p75, color='dodgerblue', alpha=0.6, label='50% interval')
         ax2.plot(range(0, horizon + 1), p50, color='blue', linewidth=2, label='Median')
         ax2.plot(range(0, len(X_test['I_t'])), X_test['I_t'], color='red', linewidth=2, label='True Value')
-    
+
         ax2.set_ylabel('Issuance Rate')
         ax2.set_xlabel('Horizon Days')
-    
+
         plt.legend()
         plt.tight_layout()
         plt.show()
 
         return mo.vstack([mo.md(f"$\\hat{{\\beta}}$: {optimal_beta}"), fig ])
-
     return simulate, simulation_plots
 
 
@@ -516,7 +521,6 @@ def _(mo):
         value='bootstrap',  # default selection
         label="Sampling of Exogeneous Variables"
     )
-
 
     return (
         radio_horizon,
@@ -555,7 +559,9 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Risk Assessment""")
+    mo.md(r"""
+    # Risk Assessment
+    """)
     return
 
 
@@ -589,9 +595,9 @@ def _(
         parameters['sigma'] = slider_sigma.value
         parameters['n_sims'] = int(radio_paths.value)
         parameters['horizon_days'] = int(radio_horizon.value)
-    
+
         P_paths, I_paths, X_paths, X_test, y_test, optimal_beta = simulate(df, 'logit', exog_cols, parameters)
-    
+
         P = P_paths
         H = parameters['horizon_days']
         Plow = slider_Plow.value
@@ -640,7 +646,6 @@ def _(
                          ])
 
     #result_risk = risk_admissibility()
-
     return (risk_admissibility,)
 
 
@@ -683,7 +688,6 @@ def _(
                   mo.vstack([mo.md(f"P_low: **{slider_Plow.value}**"), mo.md(f"P_high: **{slider_Phigh.value}**"), mo.md(f"T_star: **{slider_Tstar.value}**"), mo.md(f"T_tail: **{slider_Ttail.value}**"), mo.md(f"eps_Tail: **{slider_Teps.value}**"), mo.md(f"gamma_star: **{slider_gamma_star.value}**"), mo.md(f"yield_star: **{slider_yield_star.value}**")]) ]),
         risk_admissibility()
     ])
-
 
     return
 
