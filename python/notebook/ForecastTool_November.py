@@ -75,31 +75,69 @@ def _():
 
 
 @app.cell
-def _(mo, os, pd, transform_inflation):
+def _(np, os, pd):
     # ------------------------------------------------------------
     # Load and prepare data
     # ------------------------------------------------------------
-    path = os.getenv("LPT_DATA_SOURCE")    # adjust path if needed
-    df_raw = pd.read_csv(path)
 
-    df_raw["date"] = pd.to_datetime(df_raw["date"], errors="coerce")
+    CHAIN_STATE_COLUMNS = ["inflation", "total-supply", "bonded", "participation-rate"]
+    EXOG_COLUMNS_RAW = ["btc_price_usd", "eth_price_usd", "lpt_price_usd", "fear-greed-index"]
+    # DF_RAW_COLUMNS = [
+    #  "date",
+    #  "inflation",
+    #  "total-supply",
+    #  "bonded",
+    #  "participation-rate",
+    #  "issuance-rate",
+    #  "btc_price_usd",
+    #  "eth_price_usd",
+    #  "lpt_price_usd",
+    #  "btc_volume",
+    #  "eth_volume",
+    #  "lpt_volume",
+    #  "fear-greed-index"
+    #]
+
+    def load_data():
+        path = os.getenv("LPT_DATA_SOURCE")    # adjust path if needed
+        return pd.read_csv(path)
+
+    def prepare_date_index(df_raw):
+        """
+        Coerce date strings to datetime, set as index, and sort.
+        """
+        df_raw["date"] = pd.to_datetime(df_raw["date"], errors="coerce")
+        return df_raw.dropna(subset=["date"]).set_index("date").sort_index()
+
+    def prepare_u256(df, cols=["total-supply", "bonded"]):
+        """
+        Downcast U256 columns to float64 in place.
+        """
+        for col in cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype(np.float64)
+        return df
+
+    def prepare_na(df, cols=["participation-rate", "annual_inflation_rate"]):
+        """
+        Drop rows with null or NaN entries in specified columns. (There aren't any such rows in our dataset.)
+        """
+        return df.dropna(subset=cols)
+
+    return load_data, prepare_date_index, prepare_u256
+
+
+@app.cell
+def _(load_data, prepare_date_index, prepare_u256, transform_inflation):
+    from functools import reduce
+
+    df = reduce(lambda x, f: f(x), [prepare_date_index, prepare_u256], load_data())
+
+    DF_RAW_COLUMNS = df.columns.tolist()
 
     # Fix the inflation calculation:
-    df_raw["annual_inflation_rate"] = transform_inflation(df_raw["inflation"])
+    df["annual_inflation_rate"] = transform_inflation(df["inflation"])
 
-    df = df_raw.dropna(subset=["date"]).set_index("date").sort_index()
-
-    # Identify key columns
-    p_col = "participation-rate"
-    g_col = "annual_inflation_rate"
-
-    # Convert numerics
-    for c in df.columns:
-        if df[c].dtype == "object":
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-
-    df = df.dropna(subset=[p_col, g_col])
-    mo.ui.data_explorer(df)
     return (df,)
 
 
@@ -108,6 +146,47 @@ def _(mo):
     mo.md(r"""
     # Data Preparation
     """)
+    return
+
+
+@app.cell
+def _(pd):
+    # Splitting train and validation data
+
+    def train_validate_split(df, cutoff_date, train_window_days=360, validate_window_days=90):
+        cutoff = pd.to_datetime(cutoff_date)
+        df_train = df.loc[cutoff-train_window_days:cutoff]
+        df_validate = df.loc[cutoff:cutoff+validate_window_days]
+
+        return df_train, df_validate
+    return
+
+
+@app.cell
+def _(np):
+    # Transformed column preparation
+
+    def prepare_target_columns(df):
+        """
+        Prepare transformed target columns for regression.
+        """
+        df["logit-P"] = np.log(df["participation-rate"] / (1 - df["participation-rate"]))
+        df["log-P"] = np.log(df["participation-rate"])
+        df["ΔP"] = df["participation-rate"].diff()
+        return df
+
+    def prepare_vol_columns(df, price_cols=["btc_price_usd", "eth_price_usd", "lpt_price_usd"], window=7):
+        """
+        Compute rolling volatilities on price columns.
+        """
+        raise NotImplementedError("Volatility features not implemented yet.")
+
+    def prepare_lagged_columns(df):
+        """
+        Prepare lags of target for use as feature.
+        """
+        df["P_lag1"] = df["participation-rate"].shift(1).bfill()
+        return df
     return
 
 
