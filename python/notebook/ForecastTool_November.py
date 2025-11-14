@@ -30,37 +30,52 @@ def _(mo):
     return
 
 
+@app.function
+def params():
+    # Policy / simulation params
+    sigma = 0.0000005 # inflation change step per round
+    P_star = 0.5 # target participation rate P^*
+    gamma_min = 0.0001 # lower bound of inflation per round
+    gamma_max = 0.01 # upper bound of inflation per round
+
+    # Simulation
+    horizon_days = 180
+    n_sims = 20
+    random_seed = 42
+
+    # Risk band for participation (D0 = [Plow, Phigh])
+    Plow = 0.40
+    Phigh = 0.60
+
+    # Admissibility thresholds (from framework)
+    T_star = 10 # expected number of days outside D0 allowed over horizon
+    Ttail = 20 # tail threshold: unacceptable if time-outside > Ttail
+    eps_tail = 0.05 # allowed probability of exceeding Ttail across sims
+    gamma_star = 0.25 # target emission rate
+    yield_star = 0.4 # target yield rate
+
+    return dict(sigma=sigma, P_star=P_star, gamma_min=gamma_min, gamma_max=gamma_max,
+                horizon_days=horizon_days, n_sims=n_sims,
+                random_seed=random_seed, Plow=Plow, Phigh=Phigh,
+                T_star=T_star, Ttail=Ttail, eps_tail=eps_tail)
+
+
 @app.cell
-def _(mo, os, pd):
-    def params():
-        # Policy / simulation params
-        sigma = 0.0000005 # inflation change step per round
-        P_star = 0.5 # target participation rate P^*
-        gamma_min = 0.0001 # lower bound of inflation per round
-        gamma_max = 0.01 # upper bound of inflation per round
+def _():
+    ETH_SLOTS_PER_ROUND = 6337
+    SECONDS_PER_ETH_SLOT = 12
+    ROUNDS_PER_YEAR = (365 * 24 * 3600) / (ETH_SLOTS_PER_ROUND * SECONDS_PER_ETH_SLOT)
 
-        # Simulation
-        horizon_days = 180
-        n_sims = 20
-        random_seed = 42
+    def transform_inflation(inflation_per_round_ppb: int) -> float:
+        # Convert inflation per round to annualized issuance rate
+        return (1 + inflation_per_round_ppb*1e-9) ** ROUNDS_PER_YEAR - 1
 
-        # Risk band for participation (D0 = [Plow, Phigh])
-        Plow = 0.40
-        Phigh = 0.60
-
-        # Admissibility thresholds (from framework)
-        T_star = 10 # expected number of days outside D0 allowed over horizon
-        Ttail = 20 # tail threshold: unacceptable if time-outside > Ttail
-        eps_tail = 0.05 # allowed probability of exceeding Ttail across sims
-        gamma_star = 0.25 # target emission rate
-        yield_star = 0.4 # target yield rate
-
-        return dict(sigma=sigma, P_star=P_star, gamma_min=gamma_min, gamma_max=gamma_max,
-                    horizon_days=horizon_days, n_sims=n_sims,
-                    random_seed=random_seed, Plow=Plow, Phigh=Phigh,
-                    T_star=T_star, Ttail=Ttail, eps_tail=eps_tail)
+    # Inverse transform is not needed
+    return (transform_inflation,)
 
 
+@app.cell
+def _(mo, os, pd, transform_inflation):
     # ------------------------------------------------------------
     # Load and prepare data
     # ------------------------------------------------------------
@@ -70,8 +85,7 @@ def _(mo, os, pd):
     df_raw["date"] = pd.to_datetime(df_raw["date"], errors="coerce")
 
     # Fix the inflation calculation:
-    df_raw["inflation_per_round"] = df_raw["inflation"]/1e9  # inflation per round
-    df_raw["annual_inflation_rate"] = (1 + df_raw["inflation_per_round"]) ** 417 - 1 # annualized issuance rate
+    df_raw["annual_inflation_rate"] = transform_inflation(df_raw["inflation"])
 
     df = df_raw.dropna(subset=["date"]).set_index("date").sort_index()
 
@@ -86,7 +100,7 @@ def _(mo, os, pd):
 
     df = df.dropna(subset=[p_col, g_col])
     mo.ui.data_explorer(df)
-    return df, params
+    return (df,)
 
 
 @app.cell
@@ -267,7 +281,6 @@ def _(
     fit_ridge,
     mo,
     np,
-    params,
     plt,
     prepare_data,
     radio_horizon,
@@ -521,7 +534,6 @@ def _(mo):
         value='bootstrap',  # default selection
         label="Sampling of Exogeneous Variables"
     )
-
     return (
         radio_horizon,
         radio_paths,
@@ -570,7 +582,6 @@ def _(
     df,
     mo,
     np,
-    params,
     radio_horizon,
     radio_paths,
     simulate,
@@ -688,12 +699,11 @@ def _(
                   mo.vstack([mo.md(f"P_low: **{slider_Plow.value}**"), mo.md(f"P_high: **{slider_Phigh.value}**"), mo.md(f"T_star: **{slider_Tstar.value}**"), mo.md(f"T_tail: **{slider_Ttail.value}**"), mo.md(f"eps_Tail: **{slider_Teps.value}**"), mo.md(f"gamma_star: **{slider_gamma_star.value}**"), mo.md(f"yield_star: **{slider_yield_star.value}**")]) ]),
         risk_admissibility()
     ])
-
     return
 
 
 @app.cell
-def _(np, params, plt):
+def _(np, plt):
     def diagnostics(dates, P_paths, risk_admissibility):
         q10 = risk_admissibility['q10']
         q50 = risk_admissibility['q50']
