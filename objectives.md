@@ -10,7 +10,7 @@ The simplest way to formulate objectives is via bounding an observation on the t
 * Emissions $E$ below target $\tau_E$ on `OBJECTIVE_HORIZON`.
 * Participation $P$ within target range $[\tau_P^-,\tau_P^+]$ on `OBJECTIVE_HORIZON`.
 
-A smarter generalisation replaces the instantaneous observation with an average over some longer time, say monthly average of daily observations.
+A smarter generalisation replaces the instantaneous observation with an aggregate over some longer time, say monthly average of daily observations.
 
 ## Acceptance criteria: dynamic
 
@@ -50,23 +50,9 @@ Our measurement tick set $T_m$ therefore consists of midnight UTC on the first d
 
 *Maintenance* objectives are measured every `MEASUREMENT_INTERVAL` from the start date until the end date (inclusive).
 
-*Goalpost* objectives are measured only on the end date.
+*Aggregate* objectives are measured in terms of an accumulated cost or return over time.
 
 What exactly is measured on each measurement tick? The resolution of our data is *daily*.
-
-### Goalpost objectives
-
-Community discussions have centered around the matter of *reducing* emissions or yield. Implicit in this is the idea that the current emissions are not in the acceptable range for long term protocol health — a transformation is needed. To quantify this, we introduce the emissions and yield target objectives:
-
-* (ET) — $E \leq \tau_E$ at measurement end date. The corresponding acceptance set is $\mathcal{A}_E = [0,\tau_E]$.
-  
-* (YT) — $Y \leq \tau_Y$ at measurement end date. The acceptance set is $\mathcal{A}_Y = [0,\tau_Y]$.
-
-In Python pseudocode:
-```python
-OBJ_ET = emissions[MEASUREMENT_END_DATE] <= EMISSIONS_TAR_UPPER
-OBJ_YT = stake_yield[MEASUREMENT_END_DATE] <= YIELD_TAR_UPPER
-```
 
 ### Maintenance objectives
 
@@ -89,3 +75,27 @@ OBJ_PM1 = len(visit_times(participation, ATTENTION_PARTICIPATION) >= 7
 OBJ_PM2 = len(visit_times(participation, RESPOND_PARTICIPATION)) >= 8
 ```
 where `visit_times(x,A)` is a function returning the set of measurement ticks for which `x in A`.
+
+
+### Aggregate objectives
+
+Community discussions have centered around the matter of managing emissions or yield. Common to both metrics is that they represent an accumulation over time.
+
+If $I= T_m \cap [t_-,t_+]$ is a subinterval, we denote by $E(I)$ the *observed emissions over the interval $I$*. That is, 
+
+$$
+E(I) = \frac{S_{t_+} - S_{t_-}}{S_{t_+}}.
+$$
+
+We now introduce the aggregate objective:
+
+* (ET) — $E(I) \leq \tau_E$. The corresponding acceptance set is $\mathcal{A}_{E(I)} = [0,\tau_E]$.
+
+Similar objectives could be introduced for yield, but as the idea of making this an objective seems to remain controversial, we don't formulate this.
+
+In Python pseudocode:
+```python
+OBJ_ET_INTERVAL = (OBJ_ET_START_DATE, OBJ_ET_END_DATE)
+emission_measured = (total_supply[OBJ_ET_END_DATE] - total_supply[OBJ_ET_START_DATE]) / total_supply[OBJ_ET_END_DATE]
+obj_et = emission_observed <= OBJ_ET_UPPER
+```
