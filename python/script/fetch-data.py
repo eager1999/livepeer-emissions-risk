@@ -121,6 +121,11 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(description="Fetch Livepeer staking data from Arbitrum.")
     parser.add_argument(
+        "--extend",
+        type=str,
+        help="Path to an existing ticks or state file to extend."
+    )
+    parser.add_argument(
         "--ticks",
         action="store_true",
         help="Fetch Arbitrum block numbers."
@@ -135,13 +140,13 @@ def parse_args():
         "--start-date",
         type=(lambda s: arrow.get(s).datetime),
         required=True,
-        help="Start date in YYYY-MM-DD format."
+        help="Start date (inclusive) in YYYY-MM-DD format."
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--end-date",
         type=(lambda s: arrow.get(s).datetime),
-        help="End date in YYYY-MM-DD format."
+        help="End date (exclusive) in YYYY-MM-DD format."
     )
     group.add_argument(
         "--num-days",
@@ -153,57 +158,126 @@ def parse_args():
 TICKS_FILE = "../data/arbitrum-daily-blocks-22-24.json"
 DATA_FILE = "../data/lpt-daily-data-22-24.json"
 
+def fetch_ticks(start_date, num_days) -> dict[str, list]:
+    arbiscan_api_key = os.getenv("ETHERSCAN_API_KEY")
+    if not arbiscan_api_key:
+        print(*help(), sep='\n')
+        sys.exit(1)
+
+    print("Fetching Arbitrum block numbers...")
+    block_nums: dict[str,list] = fetch_arbitrum_daily_blocks(
+        apikey = arbiscan_api_key, 
+        start=start_date, 
+        num_days=num_days
+    )
+    
+    with open(TICKS_FILE, 'w') as h:
+        json.dump(block_nums, h)
+
+    return block_nums
+
+def fetch_state(block_nums) -> dict:
+    w3 = arbitrum_w3()
+
+    minter = load_contract_from_json(w3, MINTER_DEPLOYMENT_JSON)
+    bonding = bonding_manager(w3)
+
+    callables = {
+        "inflation": minter.functions.inflation(),
+        "total-supply": minter.functions.getGlobalTotalSupply(),
+        "bonded": bonding.functions.getTotalBonded()
+    }
+
+    print("Fetching historic data...")
+    results = {k: fetch_historic(v, block_nums["block"]) for k, v in callables.items()}
+    results = results | block_nums
+
+    with open(DATA_FILE, 'w') as h:
+        json.dump(results, h)
+
+    return results
+
+def extend_state(old, extension):
+    before, after = extension
+    return {k: before[k]+old[k]+after[k] for k in old}
+
 if __name__ == "__main__":
     args = parse_args()
 
     # Compute num_days from end_date if not provided
     if args.end_date:
         num_days = (args.end_date - args.start_date).days
+        end_date = args.end_date
     else:
         num_days: int = args.num_days
+        end_date = args.start_date + timedelta(days=num_days)
         if num_days <= 0:
             print("Number of days must be greater than 0.")
             sys.exit(1)
 
-    # fetch ticks
-    if args.ticks:
-        arbiscan_api_key = os.getenv("ETHERSCAN_API_KEY")
-        if not arbiscan_api_key:
-            print(*help(), sep='\n')
+    if args.extend:
+        print(f"Extending existing data files {args.extend}...")
+        with open(args.extend) as h:
+            old_state = json.load(h)
+
+        old_start_date = datetime.strptime(old_state["date"][0], "%Y-%m-%d").replace(tzinfo=UTC)
+        old_end_date = (datetime.strptime(old_state["date"][-1], "%Y-%m-%d") + timedelta(days=1)).replace(tzinfo=UTC)
+        if old_start_date < args.start_date or old_end_date > args.end_date:
+            print("New date range is not an extension of range in file.")
             sys.exit(1)
 
-        print("Fetching Arbitrum block numbers...")
-        block_nums: dict[str,list] = fetch_arbitrum_daily_blocks(
-            apikey = arbiscan_api_key, 
-            start=args.start_date, 
-            num_days=num_days
-        )
-        
-        with open(TICKS_FILE, 'w') as h:
-            json.dump(block_nums, h)
+        # Now fetch the two ranges
+        extension = []
+        for (start, end) in [(args.start_date, (old_start_date-args.start_date).days), (old_end_date, (end_date-old_end_date).days)]:
+            ticks = fetch_ticks(start, end)
+            extension.append(fetch_state(ticks))
 
-    # fetch historic state
-    if args.state:
-        if not args.ticks: # need to use ticks file
-            with open(TICKS_FILE) as h:
-                block_nums = json.load(h)
+        results = extend_state(old_state, extension)
 
-        w3 = arbitrum_w3()
-
-        minter = load_contract_from_json(w3, MINTER_DEPLOYMENT_JSON)
-        bonding = bonding_manager(w3)
-
-        callables = {
-            "inflation": minter.functions.inflation(),
-            "total-supply": minter.functions.getGlobalTotalSupply(),
-            "bonded": bonding.functions.getTotalBonded()
-        }
-
-        print("Fetching historic data...")
-        results = {k: fetch_historic(v, block_nums["block"]) for k, v in callables.items()}
-        results = results | block_nums
-
-        with open(DATA_FILE, 'w') as h:
+        with open(args.extend, 'w') as h:
             json.dump(results, h)
+        
 
-        print(json.dumps(results))
+    if not args.extend:
+        # fetch ticks
+        if args.ticks:
+            arbiscan_api_key = os.getenv("ETHERSCAN_API_KEY")
+            if not arbiscan_api_key:
+                print(*help(), sep='\n')
+                sys.exit(1)
+
+            print("Fetching Arbitrum block numbers...")
+            block_nums: dict[str,list] = fetch_arbitrum_daily_blocks(
+                apikey = arbiscan_api_key, 
+                start=args.start_date, 
+                num_days=num_days
+            )
+            
+            with open(TICKS_FILE, 'w') as h:
+                json.dump(block_nums, h)
+
+        # fetch historic state
+        if args.state:
+            if not args.ticks: # need to use ticks file
+                with open(TICKS_FILE) as h:
+                    block_nums = json.load(h)
+
+            w3 = arbitrum_w3()
+
+            minter = load_contract_from_json(w3, MINTER_DEPLOYMENT_JSON)
+            bonding = bonding_manager(w3)
+
+            callables = {
+                "inflation": minter.functions.inflation(),
+                "total-supply": minter.functions.getGlobalTotalSupply(),
+                "bonded": bonding.functions.getTotalBonded()
+            }
+
+            print("Fetching historic data...")
+            results = {k: fetch_historic(v, block_nums["block"]) for k, v in callables.items()}
+            results = results | block_nums
+
+            with open(DATA_FILE, 'w') as h:
+                json.dump(results, h)
+
+            print(json.dumps(results))
