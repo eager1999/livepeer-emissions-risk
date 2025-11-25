@@ -81,7 +81,7 @@ def _(np, pd):
 
     df = df.dropna(subset=[p_col, g_col])
     #mo.ui.data_explorer(df)
-    return df, params
+    return df, df_raw, params
 
 
 @app.cell
@@ -368,6 +368,7 @@ def _(
         N_jump = jump_mask.sum()
         p_jump = N_jump / len(shocks)   # probability of a jump at any time step
 
+
         return coef, beta, sigma_eps, sigma_boot, jumps, p_jump
 
     def ridge_cv(X, y):
@@ -387,14 +388,21 @@ def _(
         #print("Coefficient mean:", coefs.mean(axis=0))
         #print("Coefficient std:", coefs.std(axis=0))
 
-        fig, ax = plt.subplots()
+        fig, axes = plt.subplots(coefs.shape[1], 1, figsize=(6, 6), sharex=True)
+    
+        for i, ax in enumerate(axes):
+            ax.plot(coefs[:, i], color='blue')
+            ax.set_ylabel(f'Feature {X.columns[i]}')
+            # Each subplot has its own y-scale (default behavior)
+        ax.set_xlabel("Fold")
+        '''fig, ax = plt.subplots()
         for j in range(coefs.shape[1]):
             ax.plot(coefs[:, j], marker='o', label=f'Feature {X.columns[j]}')
     
         ax.set_xlabel("Fold")
         ax.set_ylabel("Coefficient value")
         ax.set_title("Coefficient Stability Across Folds")
-        ax.legend()
+        ax.legend()'''
 
         return fig, coefs.mean(axis=0), coefs.std(axis=0)
 
@@ -407,11 +415,21 @@ def _(
         y_pred = np.dot(X_test, opt_beta)
         RMSE = np.mean((y_test - y_pred)**2)**0.5
 
+        # AIC
+        rss = np.sum((y_test - y_pred)**2)
+        n = len(y_test)
+        k = X.shape[1]  # parameters + intercept
+        sigma2 = rss / n
+        logL = -n/2 * (np.log(2*np.pi*sigma2) + 1)
+        aic = 2*k - 2*logL
+
+
         fig_cv, coefs_mean, coefs_std = ridge_cv(X, y)
 
         return mo.vstack([
                             mo.md(f"### Ridge Coefficients\n{opt_coef}"),
                             mo.md(f"### RMSE on Test Set: **{RMSE:.4f}**"),
+                            mo.md(f"### AIC: **{aic:.4f}**"),
                             mo.md(f"### Validation of coefficients\naverage across folds: {coefs_mean}"),
                             mo.md(f"variance across folds: {coefs_std}"), 
                             fig_cv
@@ -812,10 +830,13 @@ def _(
 @app.cell
 def _(
     df,
+    df_raw,
+    dropdown_interval,
     feature_selector,
     mo,
     np,
     params,
+    pd,
     radio_horizon,
     radio_paths,
     simulate,
@@ -830,6 +851,8 @@ def _(
     slider_gamma_star,
     slider_sigma,
     slider_yield_star,
+    start_idx_training,
+    window_size_training,
 ):
     def risk_admissibility():
         exog_cols = feature_selector.value
@@ -855,6 +878,28 @@ def _(
         gamma_star = slider_gamma_star.value
         yield_star = slider_yield_star.value
 
+        # insert the dates
+    
+        # Parameters
+        train_ind_end = min(len(df_raw) , start_idx_training.value + window_size_training.value)
+        start_date = pd.Timestamp(df_raw['date'].iloc[train_ind_end])
+        ratio_days = 21
+        ratio_blocks = 24
+        block_quantity = parameters['horizon_blocks']  # Example: user specifies 50 blocks
+    
+        # Compute total days based on ratio
+        days_per_block = ratio_days / ratio_blocks  # 21 days per 24 blocks
+        total_days = block_quantity * days_per_block
+    
+        # Generate date array with rounding to whole days
+        end_date = start_date + pd.Timedelta(days=total_days)
+        date_array = pd.date_range(start=start_date, end=end_date, periods=block_quantity)
+    
+        # Round each timestamp to the nearest day
+        date_array = date_array.normalize()  # strips time, keeps date only
+
+        dates = pd.date_range(start=start_date, end=date_array[-1], freq=dropdown_interval.value)
+    
         # compute time outside D0 for each sim (count of days where P not in [Plow,Phigh])
         outside = ((P < Plow) | (P > Phigh)).sum(axis=1) # includes t=0..H
 
@@ -877,12 +922,6 @@ def _(
 
         result = dict(expected_outside=expected_outside, prob_exceed_tail=prob_exceed_tail,
         admissible=bool(admissible), q10=q10, q50=q50, q90=q90)
-        # human readable summary
-        print(f"Expected days outside D0 over {H} days: {expected_outside:.2f} (threshold T*={T_star})")
-        print(f"Probability time-outside > {Ttail}: {prob_exceed_tail:.3f} (allowed eps={eps_tail})")
-        print(f"Emission rate: {ET:.3f} (acceptance target={gamma_star})")
-        print(f"Yield: {YT:.3f} (acceptance target={yield_star})")
-        print('RISK-ADMISSIBLE:' , '✅ YES' if admissible else '❌ NO')
 
         #return result
         return mo.vstack([mo.md(f"Expected days outside D0 over {H} days: {expected_outside:.2f} (threshold T*={T_star})"),
@@ -942,6 +981,30 @@ def _(
 
 
 @app.cell
+def _(mo):
+    # Maintenance Objectives
+
+    '''# Define allowed range
+    min_date = pd.Timestamp("2025-01-01")
+    max_date = pd.Timestamp("2025-12-31")
+
+    # UI controls with restricted range
+    button_start_date = mo.ui.date(label="Start Date", value=min_date, min=min_date, max=max_date)
+    button_end_date = mo.ui.date(label="End Date", value=max_date, min=min_date, max=max_date)
+
+    start_date = mo.ui.date(label="Start Date", value=pd.Timestamp("2025-01-01"))
+    end_date = mo.ui.date(label="End Date", value=pd.Timestamp("2025-12-31"))'''
+
+    dropdown_interval = mo.ui.dropdown(
+        label="Measurement Interval",
+        options=["1D", "1W", "1M"],  # daily, weekly, monthly
+        value="1M"
+    )
+
+    return (dropdown_interval,)
+
+
+@app.cell
 def _(
     data_prep_control2,
     mo,
@@ -974,6 +1037,11 @@ def _(
     ])
 
     display_layout
+    return
+
+
+@app.cell
+def _():
     return
 
 
