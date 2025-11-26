@@ -835,9 +835,12 @@ def _(
     mo,
     np,
     params,
+    plt,
     radio_horizon,
     radio_paths,
     simulate,
+    slider_E_end,
+    slider_E_start,
     slider_P_star,
     slider_gamma_max,
     slider_gamma_min,
@@ -909,32 +912,42 @@ def _(
         admissible = True #(expected_outside <= T_star) and (prob_exceed_tail <= eps_tail)
 
         # Emission and Yield Rate target acceptance
-        ET = ((total_supply_paths[:, -1] - total_supply_paths[:, 0]) / total_supply_paths[:, -1]).mean()
+        ET = ((total_supply_paths[:, slider_E_end.value] - total_supply_paths[:, slider_E_start.value]) / total_supply_paths[:,  slider_E_end.value]).mean()
         YT = ((1+I_paths)**417 - 1)/P_paths
         YT = YT[:,-1].mean()
 
         admissible = (admissible) and (ET <= gamma_star) and (YT <= yield_star)
 
         # also compute percentiles for plotting
-        q10 = np.percentile(P, 10, axis=0)
-        q50 = np.percentile(P, 50, axis=0)
-        q90 = np.percentile(P, 90, axis=0)
+        q10 = np.percentile(total_supply_paths, 10, axis=0)
+        q50 = np.percentile(total_supply_paths, 50, axis=0)
+        q90 = np.percentile(total_supply_paths, 90, axis=0)
 
-        result = dict(admissible=bool(admissible), q10=q10, q50=q50, q90=q90)
+
+        # plot for emissions 
+        fig, ax = plt.subplots(figsize=(8,4))
+        ax.plot(range(parameters["horizon_blocks"] + 1), np.mean(total_supply_paths, axis=0), label="Mean", color="orange")
+        ax.plot(range(parameters["horizon_blocks"] + 1), q50, label="Median", alpha=0.6, color="orange")
+        ax.fill_between(range(0, parameters["horizon_blocks"] + 1), q10, q90, color='orange', alpha=0.4, label='80% interval')
+        ax.axvspan(slider_E_start.value, slider_E_end.value, color="green", alpha=0.3, label="$I$")
+        ax.set_title("Total Supply fan chart")
+        ax.legend()
 
         #return result
         return mo.vstack([
+                            fig,
                           mo.md(f"E[I]: {ET:.3f} (acceptance target={gamma_star})"),
                           mo.md(f"Yield: {YT:.3f} (acceptance target={yield_star})"),
                           mo.md(f"RISK-ADMISSIBLE: {'✅ YES' if admissible else '❌ NO'}")
                          ])
+
 
     #result_risk = risk_admissibility()
     return (risk_admissibility,)
 
 
 @app.cell
-def _(mo):
+def _(mo, radio_horizon):
     # UI for risk admissibility parameters
     #slider_Plow = mo.ui.slider(start=0.0, stop=0.5, step=0.01, value=0.4, label="$P_{{low}}$")
     #slider_Phigh = mo.ui.slider(start=0.5, stop=1.0, step=0.01, value=0.6, label="$P_{{high}}$")
@@ -944,12 +957,25 @@ def _(mo):
     slider_fan = mo.ui.slider(start=10, stop=100, step=1, value=80, label="Distribution interval")
     slider_gamma_star = mo.ui.slider(start=0.01, stop=1.0, step=0.01, value=0.4, label="$\\tau_E$")
     slider_yield_star = mo.ui.slider(start=0.1, stop=1.0, step=0.01, value=0.4, label="yield")
-    return slider_fan, slider_gamma_star, slider_yield_star
+
+    slider_E_start = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=0, label="$t_-$")
+    slider_E_end = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=int(radio_horizon.value), label="$t_+$")
+
+
+    return (
+        slider_E_end,
+        slider_E_start,
+        slider_fan,
+        slider_gamma_star,
+        slider_yield_star,
+    )
 
 
 @app.cell
-def _(mo, slider_gamma_star, slider_yield_star):
+def _(mo, slider_E_end, slider_E_start, slider_gamma_star, slider_yield_star):
     risk_admissibility_parameters_control = mo.vstack([
+        mo.hstack([slider_E_start, slider_E_start.value]),
+        mo.hstack([slider_E_end, slider_E_end.value]),
         mo.hstack([slider_gamma_star, slider_gamma_star.value]),
         mo.hstack([slider_yield_star, slider_yield_star.value])
         ], align='start', justify='start')
