@@ -94,7 +94,6 @@ def _(df, mo):
     feature_selector = mo.ui.multiselect(options=features_list, value=["fear_greed_index", "btc_price_usd"], label="Select Exogeneous Variables")
 
     switch_differencing = mo.ui.switch(label="Differencing the target")
-
     return (
         feature_selector,
         switch_differencing,
@@ -189,11 +188,11 @@ def _(
         df2['Y_diff'] = df2['Y'] - df2['Y'].shift(1)
         df2['logP_diff'] = df2['logP'] - df2['logP'].shift(1)
         df2['P_diff'] = df2['P'] - df2['P'].shift(1)
-    
+
         df2['Y_diff_next'] = df2['Y_diff'].shift(-1)
         df2['logP_diff_next'] = df2['logP_diff'].shift(-1)
         df2['P_diff_next'] = df2['P_diff'].shift(-1)
-    
+
         # drop first and last row with NaN difference and target
         df2 = df2.iloc[1:-1]
 
@@ -202,11 +201,11 @@ def _(
         # design matrix columns: intercept, Y_t, gamma_t, exog...
         X = pd.DataFrame(index=df2.index)
         X['intercept'] = 1.0
-    
+
         # Split to Training Set
         train_idx_end = min(len(X), start_idx_training.value + window_size_training.value)
         test_idx_end = min(len(X), train_idx_end + window_size_test.value)
-    
+
         if switch_differencing.value:
             if target_col == 'logit':
                 X['Y_t_diff'] = df2['Y_diff']
@@ -244,7 +243,7 @@ def _(
         for c in exog_cols:
             if c not in ['intercept', 'Y_t', 'logP_t', 'P_t','I_t', 'Y_t_diff', 'logP_t_diff', 'P_t_diff']:
                 X[c] = df2[c]        
-    
+
         X_train = X[start_idx_training.value: train_idx_end]
         X_test = X[train_idx_end: test_idx_end]
         y_train = y[start_idx_training.value: train_idx_end]
@@ -278,7 +277,7 @@ def _(
         train_idx_end = min(len(df), start_idx_training.value + window_size_training.value)
         train_data = df[start_idx_training.value : train_idx_end]
         test_data = df[train_idx_end: train_idx_end + window_size_test.value]
-    
+
         fig, ax = plt.subplots()
         ax.plot(df.index, df["participation-rate"], label="Participation Rate", color="blue")
         ax.axvspan(start_idx_training.value, train_idx_end, color="green", alpha=0.3, label="Train")
@@ -375,7 +374,7 @@ def _(
         model = RidgeCV(alphas=[0.01, 0.1, 0.5, 1, 2, 4, 10, 20, 50], cv=kfold_dropdown.value)
         model.fit(X, y)
         best_lambda = model.alpha_
-    
+
         kf = KFold(n_splits=kfold_dropdown.value, shuffle=True, random_state=42)
 
         coefs = []
@@ -383,13 +382,13 @@ def _(
             model = Ridge(alpha=best_lambda)
             model.fit(X.iloc[train_idx], y[train_idx])
             coefs.append(model.coef_)
-    
+
         coefs = np.array(coefs)
         #print("Coefficient mean:", coefs.mean(axis=0))
         #print("Coefficient std:", coefs.std(axis=0))
 
         fig, axes = plt.subplots(coefs.shape[1], 1, figsize=(6, 6), sharex=True)
-    
+
         for i, ax in enumerate(axes):
             ax.plot(coefs[:, i], color='blue')
             ax.set_ylabel(f'Feature {X.columns[i]}')
@@ -398,7 +397,7 @@ def _(
         '''fig, ax = plt.subplots()
         for j in range(coefs.shape[1]):
             ax.plot(coefs[:, j], marker='o', label=f'Feature {X.columns[j]}')
-    
+
         ax.set_xlabel("Fold")
         ax.set_ylabel("Coefficient value")
         ax.set_title("Coefficient Stability Across Folds")
@@ -435,7 +434,7 @@ def _(
                             fig_cv
                         ])
 
-    
+
     return fit_ridge, show_fit
 
 
@@ -516,7 +515,7 @@ def _(
         np.ndarray
             Array of shape (n_paths, horizon, n_features) with simulated future samples.
         """
-    
+
         if random_state is not None:
             np.random.seed(random_state)
 
@@ -574,7 +573,7 @@ def _(
         X, y, X_test, y_test, X_whole, y_whole, P_initial, y_test_initial = prepare_data_updated(df, target_col, exog_variables)
         # unpack fit
         coef, beta, ridge_eps, ridge_boot, jumps, p_jump = fit_ridge(X.values, y, X.columns.to_list())
-    
+
         # initial states
         if switch_differencing.value:
             if target_col == 'logit':
@@ -626,7 +625,7 @@ def _(
 
             # dynamics for Y_{t+1}
             Y_mean = beta_intercept + beta_P * P_t + beta_I * I_t + (exog_vals @ beta_exog).ravel()
-        
+
             if radio_residual.value == 'gaussian noise':
                 eps = np.random.randn(n) * ridge_eps
             elif radio_residual.value == 'student noise':
@@ -640,7 +639,7 @@ def _(
                     eps += np.random.choice(jumps, size=n, replace=True)
             else:
                 eps = np.random.choice(ridge_boot, size=(n, ), replace=True)
-            
+
             Y_next = Y_mean + eps
 
             if switch_differencing.value:
@@ -832,12 +831,10 @@ def _(
 def _(
     df,
     df_raw,
-    dropdown_interval,
     feature_selector,
     mo,
     np,
     params,
-    pd,
     radio_horizon,
     radio_paths,
     simulate,
@@ -875,27 +872,34 @@ def _(
         yield_star = slider_yield_star.value
 
         # insert the dates
-    
-        # Parameters
+
+        # Dilution Objective
         train_ind_end = min(len(df_raw) , start_idx_training.value + window_size_training.value)
-        start_date = pd.Timestamp(df_raw['date'].iloc[train_ind_end])
+        total_supply = df['total-supply']/1e18 # 18 decimals 
+        total_supply_paths = np.zeros((parameters["n_sims"], parameters["horizon_blocks"] + 1))
+        total_supply_paths[:, 0] = total_supply.iloc[train_ind_end]
+        for i in range(parameters["horizon_blocks"]):
+            inflation_token = total_supply_paths[:, i]*I_paths[:, i]
+            total_supply_paths[:, i+1] = total_supply_paths[:, i] + inflation_token
+        
+        '''start_date = pd.Timestamp(df_raw['date'].iloc[train_ind_end])
         ratio_days = 21
         ratio_blocks = 24
         block_quantity = parameters['horizon_blocks']  # Example: user specifies 50 blocks
-    
+
         # Compute total days based on ratio
         days_per_block = ratio_days / ratio_blocks  # 21 days per 24 blocks
         total_days = block_quantity * days_per_block
-    
+
         # Generate date array with rounding to whole days
         end_date = start_date + pd.Timedelta(days=total_days)
         date_array = pd.date_range(start=start_date, end=end_date, periods=block_quantity)
-    
+
         # Round each timestamp to the nearest day
         date_array = date_array.normalize()  # strips time, keeps date only
 
-        dates = pd.date_range(start=start_date, end=date_array[-1], freq=dropdown_interval.value)
-    
+        dates = pd.date_range(start=start_date, end=date_array[-1], freq=dropdown_interval.value)'''
+
         # compute time outside D0 for each sim (count of days where P not in [Plow,Phigh])
         #outside = ((P < Plow) | (P > Phigh)).sum(axis=1) # includes t=0..H
 
@@ -905,7 +909,7 @@ def _(
         admissible = True #(expected_outside <= T_star) and (prob_exceed_tail <= eps_tail)
 
         # Emission and Yield Rate target acceptance
-        ET = ((1 + I_paths[:,-1])**417 - 1).mean()
+        ET = ((total_supply_paths[:, -1] - total_supply_paths[:, 0]) / total_supply_paths[:, -1]).mean()
         YT = ((1+I_paths)**417 - 1)/P_paths
         YT = YT[:,-1].mean()
 
@@ -920,7 +924,7 @@ def _(
 
         #return result
         return mo.vstack([
-                          mo.md(f"Emission rate: {ET:.3f} (acceptance target={gamma_star})"),
+                          mo.md(f"E[I]: {ET:.3f} (acceptance target={gamma_star})"),
                           mo.md(f"Yield: {YT:.3f} (acceptance target={yield_star})"),
                           mo.md(f"RISK-ADMISSIBLE: {'✅ YES' if admissible else '❌ NO'}")
                          ])
@@ -938,7 +942,7 @@ def _(mo):
     #slider_Ttail = mo.ui.slider(start=1, stop=100, step=1, value=20, label="$T_{{tail}}$")
     #slider_Teps = mo.ui.slider(start=0.01, stop=0.3, step=0.01, value=0.05, label="$\\epsilon_T$")
     slider_fan = mo.ui.slider(start=10, stop=100, step=1, value=80, label="Distribution interval")
-    slider_gamma_star = mo.ui.slider(start=0.05, stop=1.0, step=0.01, value=0.25, label="$\\gamma^*$")
+    slider_gamma_star = mo.ui.slider(start=0.01, stop=1.0, step=0.01, value=0.4, label="$\\tau_E$")
     slider_yield_star = mo.ui.slider(start=0.1, stop=1.0, step=0.01, value=0.4, label="yield")
     return slider_fan, slider_gamma_star, slider_yield_star
 
@@ -949,7 +953,6 @@ def _(mo, slider_gamma_star, slider_yield_star):
         mo.hstack([slider_gamma_star, slider_gamma_star.value]),
         mo.hstack([slider_yield_star, slider_yield_star.value])
         ], align='start', justify='start')
-
     return (risk_admissibility_parameters_control,)
 
 
@@ -973,8 +976,7 @@ def _(mo):
         options=["1D", "1W", "1M"],  # daily, weekly, monthly
         value="1M"
     )
-
-    return (dropdown_interval,)
+    return
 
 
 @app.cell
@@ -1019,7 +1021,8 @@ def _(
 
 
 @app.cell
-def _():
+def _(df):
+    df['total-supply'].iloc[-1]/1e18
     return
 
 
