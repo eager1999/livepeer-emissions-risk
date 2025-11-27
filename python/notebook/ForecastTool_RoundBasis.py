@@ -297,7 +297,7 @@ def _(
     # CV selection UI
     round_picker = mo.ui.slider(start = 10, stop = len(df), label="Training and Test sets cutoff", value=600)
 
-    start_idx_training = mo.ui.slider(0, len(df) - window_size_training.value, step=2, value=0, label='training start-point')
+    start_idx_training = mo.ui.slider(0, len(df) - window_size_training.value-1, step=2, value=0, label='training start-point')
 
     #start_idx_test= mo.ui.slider(100, len(df) - window_size_test.value, step=2, value=len(df)- window_size_test.value, label='test start-point')
 
@@ -436,7 +436,6 @@ def _(
                             mo.md(f"variance across folds: {coefs_std}"), 
                             fig_cv
                         ])
-
     return fit_ridge, show_fit
 
 
@@ -962,7 +961,6 @@ def _(mo, radio_horizon):
 
     slider_E_start = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=58, label="$t_-$")
     slider_E_end = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=int(radio_horizon.value), label="$t_+$")
-
     return (
         slider_E_end,
         slider_E_start,
