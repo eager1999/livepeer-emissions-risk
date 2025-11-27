@@ -57,8 +57,10 @@ def _(np, pd):
     # ------------------------------------------------------------
     # Load and prepare data
     # ------------------------------------------------------------
-    path = "/Users/sazisbekuu/Downloads/ShtukaResearch/Data2022-2025[perRound].csv"    # adjust path if needed
-    df_raw = pd.read_csv(path)
+    def load_data():
+        path = os.getenv("LPT_DATA_SOURCE")    # adjust path if needed
+        return pd.read_csv(path)
+    df_raw = load_data()
 
 
     df_raw['participation-rate'] = df_raw['bonded']/df_raw['total-supply']
