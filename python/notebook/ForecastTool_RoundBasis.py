@@ -743,7 +743,7 @@ def _(
         ax2.plot(range(0, len(X_test['I_t'])), X_test['I_t'], color='red', linewidth=2, label='True Value')
 
         ax2.set_ylabel('Issuance Rate')
-        ax2.set_xlabel('Horizon Blocks')
+        ax2.set_xlabel('Horizon Rounds')
 
         plt.legend()
         plt.tight_layout()
@@ -767,9 +767,9 @@ def _(mo):
         label="Number of simulations"
     )
     radio_horizon = mo.ui.radio(
-        options=['30', '90', '180'],
-        value='180',  # default selection
-        label="Horizon Days"
+        options=['30', '90', '180', '262'],
+        value='262',  # default selection
+        label="Horizon Rounds"
     )
     radio_sampling = mo.ui.radio(
         options=['bootstrap', 'AR1'],
@@ -957,10 +957,10 @@ def _(mo, radio_horizon):
     #slider_Ttail = mo.ui.slider(start=1, stop=100, step=1, value=20, label="$T_{{tail}}$")
     #slider_Teps = mo.ui.slider(start=0.01, stop=0.3, step=0.01, value=0.05, label="$\\epsilon_T$")
     slider_fan = mo.ui.slider(start=10, stop=100, step=1, value=80, label="Distribution interval")
-    slider_gamma_star = mo.ui.slider(start=0.01, stop=1.0, step=0.01, value=0.4, label="$\\tau_E$")
-    slider_yield_star = mo.ui.slider(start=0.1, stop=1.0, step=0.01, value=0.4, label="yield")
+    slider_gamma_star = mo.ui.slider(start=0.01, stop=0.2, step=0.005, value=0.12, label="$\\tau_E$")
+    slider_yield_star = mo.ui.slider(start=0.1, stop=1.0, step=0.01, value=1.0, label="yield")
 
-    slider_E_start = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=0, label="$t_-$")
+    slider_E_start = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=58, label="$t_-$")
     slider_E_end = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=int(radio_horizon.value), label="$t_+$")
 
     return (
