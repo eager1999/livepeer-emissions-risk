@@ -96,7 +96,7 @@ def _(df, mo):
                     'btc_volume', 'eth_volume', 'lpt_volume']
     feature_selector = mo.ui.multiselect(options=features_list, value=["fear_greed_index", "btc_price_usd"], label="Select Exogeneous Variables")
 
-    switch_differencing = mo.ui.switch(label="Differencing the target")
+    switch_differencing = mo.ui.switch(label="Differencing the target", value=True)
     return (
         feature_selector,
         switch_differencing,
@@ -913,9 +913,13 @@ def _(
         admissible = True #(expected_outside <= T_star) and (prob_exceed_tail <= eps_tail)
 
         # Emission and Yield Rate target acceptance
-        ET = ((total_supply_paths[:, slider_E_end.value] - total_supply_paths[:, slider_E_start.value]) / total_supply_paths[:,  slider_E_end.value]).mean()
+        emissions_semiannual = (
+            (total_supply_paths[:, slider_E_end.value] - total_supply_paths[:, slider_E_start.value]) / 
+            total_supply_paths[:,  slider_E_end.value]
+        )
+        ET = np.quantile(emissions_semiannual, .95)
         YT = ((1+I_paths)**417 - 1)/P_paths
-        YT = YT[:,-1].mean()
+        YT = np.quantile(YT[:,-1], .95)
 
         admissible = (admissible) and (ET <= gamma_star) and (YT <= yield_star)
 
