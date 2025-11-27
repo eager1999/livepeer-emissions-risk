@@ -5,7 +5,7 @@
 
 import marimo
 
-__generated_with = "0.17.2"
+__generated_with = "0.17.7"
 app = marimo.App(width="medium")
 
 
@@ -57,6 +57,7 @@ def _(np, pd):
     # ------------------------------------------------------------
     # Load and prepare data
     # ------------------------------------------------------------
+    import os
     def load_data():
         path = os.getenv("LPT_DATA_SOURCE")    # adjust path if needed
         return pd.read_csv(path)
@@ -435,7 +436,6 @@ def _(
                             mo.md(f"variance across folds: {coefs_std}"), 
                             fig_cv
                         ])
-
 
     return fit_ridge, show_fit
 
@@ -886,7 +886,7 @@ def _(
         for i in range(parameters["horizon_blocks"]):
             inflation_token = total_supply_paths[:, i]*I_paths[:, i]
             total_supply_paths[:, i+1] = total_supply_paths[:, i] + inflation_token
-        
+
         '''start_date = pd.Timestamp(df_raw['date'].iloc[train_ind_end])
         ratio_days = 21
         ratio_blocks = 24
@@ -962,7 +962,6 @@ def _(mo, radio_horizon):
 
     slider_E_start = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=0, label="$t_-$")
     slider_E_end = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=int(radio_horizon.value), label="$t_+$")
-
 
     return (
         slider_E_end,
