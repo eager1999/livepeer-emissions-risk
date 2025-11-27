@@ -89,8 +89,8 @@ def _(np, pd):
 
 @app.cell
 def _(df, mo):
-    window_size_training = mo.ui.slider(100, len(df), step=10, value=600, label='training set size')
-    window_size_test = mo.ui.slider(0, 200, step=10, value=180, label='test set size')
+    window_size_training = mo.ui.slider(100, len(df), step=10, value=828, label='training set size')
+    window_size_test = mo.ui.slider(0, 200, step=10, value=0, label='test set size')
 
     features_list = ["fear_greed_index", "fng_extreme", "fng_extreme_absolute", "btc_price_usd", "eth_price_usd", "lpt_price_usd", 
                     'btc_volume', 'eth_volume', 'lpt_volume']
@@ -297,7 +297,7 @@ def _(
     # CV selection UI
     round_picker = mo.ui.slider(start = 10, stop = len(df), label="Training and Test sets cutoff", value=600)
 
-    start_idx_training = mo.ui.slider(0, len(df) - window_size_training.value-1, step=2, value=0, label='training start-point')
+    start_idx_training = mo.ui.slider(0, len(df) - window_size_training.value-1, step=2, value=len(df) - window_size_training.value-1, label='training start-point')
 
     #start_idx_test= mo.ui.slider(100, len(df) - window_size_test.value, step=2, value=len(df)- window_size_test.value, label='test start-point')
 
