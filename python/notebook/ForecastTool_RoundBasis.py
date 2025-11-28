@@ -727,7 +727,7 @@ def _(
         ax1.plot(range(0, len(y_test)), y_test, color='red', linewidth=2, label='True Value')
 
         ax1.set_ylabel('Participation Rate')
-        ax1.set_title('Forecast Fan Charts')
+        #ax1.set_title('Forecast Fan Charts')
 
         # Plot on second axis
         p2 = np.percentile(I_paths, 50 - percentile/2, axis=0)
@@ -758,8 +758,8 @@ def _(mo):
     # Create sliders for different parameters
     slider_gamma_max = mo.ui.slider(start=0.01, stop=0.2, step=0.002, value=0.1, label="$\\gamma_+$ (%)")
     slider_gamma_min = mo.ui.slider(start=0.00, stop=0.1, step=0.002, value=0.02, label="$\\gamma_-$ (%)")
-    slider_sigma = mo.ui.slider(start=100, stop=10000, step=200, value=500, label="$\\sigma$ (ppb)")
-    slider_P_star = mo.ui.slider(start=10, stop=100, step=1, value=50, label="$P^*$ (%)")
+    slider_sigma = mo.ui.slider(start=100, stop=1500, step=100, value=500, label="$\\sigma$ (ppb)")
+    slider_P_star = mo.ui.slider(start=30, stop=60, step=1, value=50, label="$P^*$ (%)")
     radio_paths = mo.ui.radio(
         options=['5', '20', '200', '1000'],
         value='20',  # default selection
@@ -1046,12 +1046,15 @@ def _(
     ])
 
     display_layout
-    return
+    return (simulation_fig,)
 
 
 @app.cell
-def _(df):
-    df['total-supply'].iloc[-1]/1e18
+def _(mo, simulation_fig, slider_P_star, slider_sigma):
+    def save(_):
+        simulation_fig.savefig(f"simulation_fan_chart-{slider_P_star.value}-{slider_sigma.value}.svg")
+
+    mo.ui.button(label="Save Figure", on_click=save)
     return
 
 
