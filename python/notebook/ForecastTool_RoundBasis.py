@@ -5,7 +5,7 @@
 
 import marimo
 
-__generated_with = "0.17.7"
+__generated_with = "0.17.2"
 app = marimo.App(width="medium")
 
 
@@ -59,9 +59,9 @@ def _(np, pd):
     # ------------------------------------------------------------
     import os
     def load_data():
-        path = os.getenv("LPT_DATA_SOURCE")    # adjust path if needed
+        path = os.getenv("/Users/sazisbekuu/Downloads/ShtukaResearch/Data2022-2025[perRound].csv")    # adjust path if needed
         return pd.read_csv(path)
-    df_raw = load_data()
+    df_raw = pd.read_csv('/Users/sazisbekuu/Downloads/ShtukaResearch/Data2022-2025[perRound].csv') #load_data()
 
 
     df_raw['participation-rate'] = df_raw['bonded']/df_raw['total-supply']
@@ -843,6 +843,7 @@ def _(
     slider_E_end,
     slider_E_start,
     slider_P_star,
+    slider_fan,
     slider_gamma_max,
     slider_gamma_min,
     slider_gamma_star,
@@ -938,9 +939,56 @@ def _(
         ax.set_title("Total Supply fan chart")
         ax.legend()
 
+        # 365 dilution and yield trails
+        dilution_paths = np.hstack([np.tile(total_supply, (total_supply_paths.shape[0], 1)), total_supply_paths])
+        I_paths_given = df['inflation_per_round']
+        P_paths_given = df['participation-rate']
+        I_paths_overall = np.hstack([np.tile(I_paths_given, (I_paths.shape[0], 1)), I_paths])
+        P_paths_overall = np.hstack([np.tile(P_paths_given, (P_paths.shape[0], 1)), P_paths])
+        yield_paths = ((1+I_paths_overall)**417 - 1)/P_paths_overall 
+        trail_horizon = min(417, dilution_paths.shape[1]) # 417 rounds is at 365 days
+        dilution_paths = dilution_paths[:, -trail_horizon:]
+        yield_paths = yield_paths[:, -trail_horizon:]
+        ### plot
+        fig2, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
+        percentile = slider_fan.value
+        p10 = np.percentile(dilution_paths, 50 - percentile/2, axis=0)
+        p25 = np.percentile(dilution_paths, 50 - percentile/4, axis=0)
+        p50 = np.percentile(dilution_paths, 50, axis=0)
+        p75 = np.percentile(dilution_paths, 50 + percentile/4, axis=0)
+        p90 = np.percentile(dilution_paths, 50 + percentile/2, axis=0)
+
+        ax1.fill_between(range(0, trail_horizon), p10, p90, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
+        ax1.fill_between(range(0, trail_horizon), p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
+        #ax1.plot(range(0, trail_horizon), p50, color='blue', linewidth=2, label='Median')
+
+        ax1.set_ylabel('dilution')
+        #ax1.set_title('Forecast Fan Charts')
+
+        # Plot on second axis
+        p2 = np.percentile(yield_paths, 50 - percentile/2, axis=0)
+        p25 = np.percentile(yield_paths, 50 - percentile/4, axis=0)
+        p50 = np.percentile(yield_paths, 50, axis=0)
+        p75 = np.percentile(yield_paths, 50 + percentile/4, axis=0)
+        p97 = np.percentile(yield_paths, 50 + percentile/2, axis=0)
+
+        ax2.fill_between(range(0, trail_horizon), p2, p97, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
+        ax2.fill_between(range(0, trail_horizon), p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
+        #ax2.plot(range(0, trail_horizon), p50, color='blue', linewidth=2, label='Median')
+
+        ax2.set_ylabel('yield')
+        ax2.set_xlabel('Latest Horizon in Rounds')
+        ax1.set_title('Dilution and Yield charts')
+
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+    
+
         #return result
         return mo.vstack([
                             fig,
+                            fig2,
                           mo.md(f"E[I]: {ET:.3f} (acceptance target={gamma_star})"),
                           mo.md(f"Yield: {YT:.3f} (acceptance target={yield_star})"),
                           mo.md(f"RISK-ADMISSIBLE: {'✅ YES' if admissible else '❌ NO'}")
