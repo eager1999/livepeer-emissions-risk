@@ -21,6 +21,10 @@ dependencies = [
     "web3>=7.9.0",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [dependency-groups]
 dev = [
     "marimo[lsp]>=0.17.7",
