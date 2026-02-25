@@ -11,20 +11,40 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
+    import sys
+    from pathlib import Path
+
+    # assuming notebook file is X/notebook/<this_file>.py
+    ROOT = Path(__file__).resolve().parents[1]   # -> X
+    SRC = ROOT / "src"                            # -> X/src
+
+    sys.path.insert(0, str(SRC))
+
     import marimo as mo
     import pandas as pd
     import numpy as np
     import matplotlib.pyplot as plt
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from sklearn.linear_model import RidgeCV
     from sklearn.linear_model import Ridge
     from sklearn.model_selection import KFold
-    return KFold, Ridge, RidgeCV, mo, np, pd, plt
+    from lpt_stake.time import datetime_to_round, round_to_datetime
+    return (
+        KFold,
+        Ridge,
+        RidgeCV,
+        datetime_to_round,
+        mo,
+        np,
+        pd,
+        plt,
+        round_to_datetime,
+    )
 
 
 @app.cell
-def _(np, pd):
+def _(datetime_to_round, np, pd):
     def params():
         # Policy / simulation params
         sigma = 0.0000005 # inflation change step per round
@@ -59,10 +79,19 @@ def _(np, pd):
     # ------------------------------------------------------------
     import os
     def load_data():
-        path = os.getenv("/Users/sazisbekuu/Downloads/ShtukaResearch/Data2022-2025[perRound].csv")    # adjust path if needed
+        path = os.getenv("LPT_DATA_PATH", "/Users/sazisbekuu/Downloads/ShtukaResearch/Data2022-2025.csv")
         return pd.read_csv(path)
-    df_raw = pd.read_csv('/Users/sazisbekuu/Downloads/ShtukaResearch/Data2022-2025[perRound].csv') #load_data()
+    df_raw = load_data()
 
+    # Build protocol rounds from daily dates so downstream logic stays round-based.
+    df_raw["date"] = pd.to_datetime(df_raw["date"], utc=True)
+    df_raw["round"] = df_raw["date"].apply(lambda ts: datetime_to_round(ts.to_pydatetime()))
+    df_raw = df_raw.sort_values(["round", "date"]).drop_duplicates(subset=["round"], keep="last")
+
+    # Convert CSV numeric text columns (notably bonded/total-supply) before arithmetic.
+    for c in df_raw.columns:
+        if c != "date" and df_raw[c].dtype == "object":
+            df_raw[c] = pd.to_numeric(df_raw[c], errors="coerce")
 
     df_raw['participation-rate'] = df_raw['bonded']/df_raw['total-supply']
     # Fix the inflation calculation:
@@ -85,6 +114,37 @@ def _(np, pd):
     df = df.dropna(subset=[p_col, g_col])
     #mo.ui.data_explorer(df)
     return df, df_raw, params
+
+
+@app.cell
+def _(datetime_to_round, np, pd, round_to_datetime):
+    def round_to_timestamp(round_number):
+        return pd.Timestamp(round_to_datetime(int(round_number)))
+
+    def ui_date_to_round(date_value):
+        ts = pd.Timestamp(date_value)
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        else:
+            ts = ts.tz_convert("UTC")
+        return int(datetime_to_round(ts.to_pydatetime()))
+
+    def set_round_date_ticks(ax, round_values, n_ticks=6):
+        round_values = np.asarray(round_values, dtype=int)
+        if round_values.size == 0:
+            return
+        min_round = int(round_values.min())
+        max_round = int(round_values.max())
+        if min_round == max_round:
+            ticks = np.array([min_round], dtype=int)
+        else:
+            n = min(n_ticks, max_round - min_round + 1)
+            ticks = np.linspace(min_round, max_round, n, dtype=int)
+            ticks = np.unique(ticks)
+        labels = [round_to_timestamp(r).strftime("%Y-%m-%d") for r in ticks]
+        ax.set_xticks(ticks)
+        ax.set_xticklabels(labels, rotation=30, ha="right")
+    return round_to_timestamp, set_round_date_ticks, ui_date_to_round
 
 
 @app.cell
@@ -112,7 +172,10 @@ def _(
     np,
     pd,
     plt,
+    round_to_timestamp,
+    set_round_date_ticks,
     switch_differencing,
+    ui_date_to_round,
     window_size_test,
     window_size_training,
 ):
@@ -255,8 +318,8 @@ def _(
         return X_train, y_train, X_test, y_test, X, y, P0, y0
 
     # Reactive cell: plot and split
-    def plot_and_split(cutoff_round):
-        cutoff = cutoff_round
+    def plot_and_split(cutoff_date):
+        cutoff = ui_date_to_round(cutoff_date)
         train_data = df[:cutoff]
         test_data = df[cutoff:]
 
@@ -264,14 +327,15 @@ def _(
         fig, ax = plt.subplots(figsize=(8, 4))
         ax.plot(df.index, df["participation-rate"], label="Participation Rate", color="blue")
         ax.axvline(cutoff, color="red", linestyle="--", label="Cutoff Round")
-        #ax.set_title("Data over Time")
-        ax.set_xlabel("Round")
+        set_round_date_ticks(ax, df.index.to_numpy())
+        ax.set_xlabel("Date")
         ax.set_ylabel("P")
         ax.legend()
+        cutoff_date_label = round_to_timestamp(cutoff).strftime("%Y-%m-%d")
 
         return mo.vstack([
             fig,
-            mo.md(f"**Cutoff Round for training & test sets:** {cutoff_round}"),
+            mo.md(f"**Cutoff date for training & test sets:** {cutoff_date_label} (round {cutoff})"),
             mo.md(f"Training Size: {len(train_data)} days"),
             mo.md(f"Test Size: {len(test_data)} days")
         ])
@@ -280,11 +344,19 @@ def _(
         train_idx_end = min(len(df), start_idx_training.value + window_size_training.value)
         train_data = df[start_idx_training.value : train_idx_end]
         test_data = df[train_idx_end: train_idx_end + window_size_test.value]
+        round_values = df.index.to_numpy(dtype=int)
+        train_start_round = int(round_values[start_idx_training.value])
+        train_end_idx = min(train_idx_end, len(round_values) - 1)
+        train_end_round = int(round_values[train_end_idx])
+        test_end_idx = min(train_idx_end + window_size_test.value, len(round_values) - 1)
+        test_end_round = int(round_values[test_end_idx])
 
         fig, ax = plt.subplots()
         ax.plot(df.index, df["participation-rate"], label="Participation Rate", color="blue")
-        ax.axvspan(start_idx_training.value, train_idx_end, color="green", alpha=0.3, label="Train")
-        ax.axvspan(train_idx_end, train_idx_end + window_size_test.value, color="orange", alpha=0.3, label="Test")
+        ax.axvspan(train_start_round, train_end_round, color="green", alpha=0.3, label="Train")
+        ax.axvspan(train_end_round, test_end_round, color="orange", alpha=0.3, label="Test")
+        set_round_date_ticks(ax, round_values)
+        ax.set_xlabel("Date")
         ax.legend()
         return mo.vstack([
             fig,
@@ -295,7 +367,15 @@ def _(
 
 
     # CV selection UI
-    round_picker = mo.ui.slider(start = 10, stop = len(df), label="Training and Test sets cutoff", value=600)
+    min_round = int(df.index.min())
+    max_round = int(df.index.max())
+    default_cutoff_round = min(max_round, min_round + 600)
+    round_picker = mo.ui.date(
+        label="Training and Test sets cutoff date",
+        value=round_to_timestamp(default_cutoff_round).date(),
+        start=round_to_timestamp(min_round).date(),
+        stop=round_to_timestamp(max_round).date(),
+    )
 
     start_idx_training = mo.ui.slider(0, len(df) - window_size_training.value-1, step=2, value=len(df) - window_size_training.value-1, label='training start-point')
 
@@ -486,12 +566,15 @@ def _(
     radio_residual,
     radio_sampling,
     radio_transform,
+    set_round_date_ticks,
     slider_P_star,
     slider_fan,
     slider_gamma_max,
     slider_gamma_min,
     slider_sigma,
+    start_idx_training,
     switch_differencing,
+    window_size_training,
 ):
 
     def sample_exog(X, n_paths, horizon, method="bootstrap", block_size=None, random_state=None):
@@ -714,6 +797,9 @@ def _(
         fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
 
         horizon = parameters['horizon_blocks']
+        forecast_start_idx = min(len(df) - 1, start_idx_training.value + window_size_training.value)
+        forecast_start_round = int(df.index[forecast_start_idx])
+        horizon_rounds = forecast_start_round + np.arange(0, horizon + 1)
         percentile = slider_fan.value
         p10 = np.percentile(P_paths, 50 - percentile/2, axis=0)
         p25 = np.percentile(P_paths, 50 - percentile/4, axis=0)
@@ -721,10 +807,10 @@ def _(
         p75 = np.percentile(P_paths, 50 + percentile/4, axis=0)
         p90 = np.percentile(P_paths, 50 + percentile/2, axis=0)
 
-        ax1.fill_between(range(0, horizon + 1), p10, p90, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
-        ax1.fill_between(range(0, horizon + 1), p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
+        ax1.fill_between(horizon_rounds, p10, p90, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
+        ax1.fill_between(horizon_rounds, p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
         #ax1.plot(range(0, horizon + 1), p50, color='blue', linewidth=2, label='Median')
-        ax1.plot(range(0, len(y_test)), y_test, color='red', linewidth=2, label='True Value')
+        ax1.plot(horizon_rounds[:len(y_test)], y_test, color='red', linewidth=2, label='True Value')
 
         ax1.set_ylabel('Participation Rate')
         #ax1.set_title('Forecast Fan Charts')
@@ -736,13 +822,14 @@ def _(
         p75 = np.percentile(I_paths, 50 + percentile/4, axis=0)
         p97 = np.percentile(I_paths, 50 + percentile/2, axis=0)
 
-        ax2.fill_between(range(0, horizon + 1), p2, p97, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
-        ax2.fill_between(range(0, horizon + 1), p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
+        ax2.fill_between(horizon_rounds, p2, p97, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
+        ax2.fill_between(horizon_rounds, p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
         #ax2.plot(range(0, horizon + 1), p50, color='blue', linewidth=2, label='Median')
-        ax2.plot(range(0, len(X_test['I_t'])), X_test['I_t'], color='red', linewidth=2, label='True Value')
+        ax2.plot(horizon_rounds[:len(X_test['I_t'])], X_test['I_t'], color='red', linewidth=2, label='True Value')
 
         ax2.set_ylabel('Issuance Rate')
-        ax2.set_xlabel('Horizon Rounds')
+        ax2.set_xlabel('Date')
+        set_round_date_ticks(ax2, horizon_rounds)
 
         plt.legend()
         plt.tight_layout()
@@ -839,6 +926,7 @@ def _(
     plt,
     radio_horizon,
     radio_paths,
+    set_round_date_ticks,
     simulate,
     slider_E_end,
     slider_E_start,
@@ -850,6 +938,7 @@ def _(
     slider_sigma,
     slider_yield_star,
     start_idx_training,
+    ui_date_to_round,
     window_size_training,
 ):
     def risk_admissibility():
@@ -879,7 +968,8 @@ def _(
         # insert the dates
 
         # Dilution Objective
-        train_ind_end = min(len(df_raw) , start_idx_training.value + window_size_training.value)
+        train_ind_end = min(len(df_raw) - 1, start_idx_training.value + window_size_training.value)
+        forecast_start_round = int(df.index[min(len(df) - 1, train_ind_end)])
         total_supply = df['total-supply']/1e18 # 18 decimals 
         total_supply_paths = np.zeros((parameters["n_sims"], parameters["horizon_blocks"] + 1))
         total_supply_paths[:, 0] = total_supply.iloc[train_ind_end]
@@ -913,10 +1003,17 @@ def _(
 
         admissible = True #(expected_outside <= T_star) and (prob_exceed_tail <= eps_tail)
 
+        emission_start_round = ui_date_to_round(slider_E_start.value)
+        emission_end_round = ui_date_to_round(slider_E_end.value)
+        emission_start_offset = int(np.clip(emission_start_round - forecast_start_round, 0, H))
+        emission_end_offset = int(np.clip(emission_end_round - forecast_start_round, 0, H))
+        if emission_start_offset > emission_end_offset:
+            emission_start_offset, emission_end_offset = emission_end_offset, emission_start_offset
+
         # Emission and Yield Rate target acceptance
         emissions_semiannual = (
-            (total_supply_paths[:, slider_E_end.value] - total_supply_paths[:, slider_E_start.value]) / 
-            total_supply_paths[:,  slider_E_end.value]
+            (total_supply_paths[:, emission_end_offset] - total_supply_paths[:, emission_start_offset]) / 
+            total_supply_paths[:,  emission_end_offset]
         )
         ET = np.quantile(emissions_semiannual, .95)
         YT = ((1+I_paths)**417 - 1)/P_paths
@@ -928,14 +1025,23 @@ def _(
         q10 = np.percentile(total_supply_paths, 10, axis=0)
         q50 = np.percentile(total_supply_paths, 50, axis=0)
         q90 = np.percentile(total_supply_paths, 90, axis=0)
+        horizon_rounds = forecast_start_round + np.arange(parameters["horizon_blocks"] + 1)
 
 
         # plot for emissions 
         fig, ax = plt.subplots(figsize=(8,4))
-        ax.plot(range(parameters["horizon_blocks"] + 1), np.mean(total_supply_paths, axis=0), label="Mean", color="orange")
-        ax.plot(range(parameters["horizon_blocks"] + 1), q50, label="Median", alpha=0.6, color="orange")
-        ax.fill_between(range(0, parameters["horizon_blocks"] + 1), q10, q90, color='orange', alpha=0.4, label='80% interval')
-        ax.axvspan(slider_E_start.value, slider_E_end.value, color="green", alpha=0.3, label="$I$")
+        ax.plot(horizon_rounds, np.mean(total_supply_paths, axis=0), label="Mean", color="orange")
+        ax.plot(horizon_rounds, q50, label="Median", alpha=0.6, color="orange")
+        ax.fill_between(horizon_rounds, q10, q90, color='orange', alpha=0.4, label='80% interval')
+        ax.axvspan(
+            horizon_rounds[emission_start_offset],
+            horizon_rounds[emission_end_offset],
+            color="green",
+            alpha=0.3,
+            label="$I$",
+        )
+        set_round_date_ticks(ax, horizon_rounds)
+        ax.set_xlabel("Date")
         ax.set_title("Total Supply fan chart")
         ax.legend()
 
@@ -949,6 +1055,8 @@ def _(
         trail_horizon = min(417, dilution_paths.shape[1]) # 417 rounds is at 365 days
         dilution_paths = dilution_paths[:, -trail_horizon:]
         yield_paths = yield_paths[:, -trail_horizon:]
+        trail_end_round = forecast_start_round + H
+        trail_rounds = np.arange(trail_end_round - trail_horizon + 1, trail_end_round + 1)
         ### plot
         fig2, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
         percentile = slider_fan.value
@@ -958,8 +1066,8 @@ def _(
         p75 = np.percentile(dilution_paths, 50 + percentile/4, axis=0)
         p90 = np.percentile(dilution_paths, 50 + percentile/2, axis=0)
 
-        ax1.fill_between(range(0, trail_horizon), p10, p90, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
-        ax1.fill_between(range(0, trail_horizon), p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
+        ax1.fill_between(trail_rounds, p10, p90, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
+        ax1.fill_between(trail_rounds, p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
         #ax1.plot(range(0, trail_horizon), p50, color='blue', linewidth=2, label='Median')
 
         ax1.set_ylabel('dilution')
@@ -972,23 +1080,25 @@ def _(
         p75 = np.percentile(yield_paths, 50 + percentile/4, axis=0)
         p97 = np.percentile(yield_paths, 50 + percentile/2, axis=0)
 
-        ax2.fill_between(range(0, trail_horizon), p2, p97, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
-        ax2.fill_between(range(0, trail_horizon), p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
+        ax2.fill_between(trail_rounds, p2, p97, color='skyblue', alpha=0.4, label=f'{percentile}% interval')
+        ax2.fill_between(trail_rounds, p25, p75, color='dodgerblue', alpha=0.6, label=f'{percentile/2}% interval')
         #ax2.plot(range(0, trail_horizon), p50, color='blue', linewidth=2, label='Median')
 
         ax2.set_ylabel('yield')
-        ax2.set_xlabel('Latest Horizon in Rounds')
+        ax2.set_xlabel('Date')
+        set_round_date_ticks(ax2, trail_rounds)
         ax1.set_title('Dilution and Yield charts')
 
         plt.legend()
         plt.tight_layout()
         plt.show()
-    
+
 
         #return result
         return mo.vstack([
                             fig,
                             fig2,
+                          mo.md(f"Selected interval: {slider_E_start.value} to {slider_E_end.value}"),
                           mo.md(f"E[I]: {ET:.3f} (acceptance target={gamma_star})"),
                           mo.md(f"Yield: {YT:.3f} (acceptance target={yield_star})"),
                           mo.md(f"RISK-ADMISSIBLE: {'✅ YES' if admissible else '❌ NO'}")
@@ -1000,7 +1110,14 @@ def _(
 
 
 @app.cell
-def _(mo, radio_horizon):
+def _(
+    df,
+    mo,
+    radio_horizon,
+    round_to_timestamp,
+    start_idx_training,
+    window_size_training,
+):
     # UI for risk admissibility parameters
     #slider_Plow = mo.ui.slider(start=0.0, stop=0.5, step=0.01, value=0.4, label="$P_{{low}}$")
     #slider_Phigh = mo.ui.slider(start=0.5, stop=1.0, step=0.01, value=0.6, label="$P_{{high}}$")
@@ -1011,8 +1128,24 @@ def _(mo, radio_horizon):
     slider_gamma_star = mo.ui.slider(start=0.01, stop=0.2, step=0.005, value=0.12, label="$\\tau_E$")
     slider_yield_star = mo.ui.slider(start=0.1, stop=1.0, step=0.01, value=1.0, label="yield")
 
-    slider_E_start = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=58, label="$t_-$")
-    slider_E_end = mo.ui.slider(start=0, stop=int(radio_horizon.value), step=1, value=int(radio_horizon.value), label="$t_+$")
+    horizon_rounds = int(radio_horizon.value)
+    forecast_start_idx = min(len(df) - 1, start_idx_training.value + window_size_training.value)
+    forecast_start_round = int(df.index[forecast_start_idx])
+    forecast_end_round = forecast_start_round + horizon_rounds
+    default_start_round = forecast_start_round + min(58, horizon_rounds)
+
+    slider_E_start = mo.ui.date(
+        label="$t_-$ (date)",
+        value=round_to_timestamp(default_start_round).date(),
+        start=round_to_timestamp(forecast_start_round).date(),
+        stop=round_to_timestamp(forecast_end_round).date(),
+    )
+    slider_E_end = mo.ui.date(
+        label="$t_+$ (date)",
+        value=round_to_timestamp(forecast_end_round).date(),
+        start=round_to_timestamp(forecast_start_round).date(),
+        stop=round_to_timestamp(forecast_end_round).date(),
+    )
     return (
         slider_E_end,
         slider_E_start,
@@ -1023,10 +1156,19 @@ def _(mo, radio_horizon):
 
 
 @app.cell
-def _(mo, slider_E_end, slider_E_start, slider_gamma_star, slider_yield_star):
+def _(
+    mo,
+    slider_E_end,
+    slider_E_start,
+    slider_gamma_star,
+    slider_yield_star,
+    ui_date_to_round,
+):
+    t_minus_round = ui_date_to_round(slider_E_start.value)
+    t_plus_round = ui_date_to_round(slider_E_end.value)
     risk_admissibility_parameters_control = mo.vstack([
-        mo.hstack([slider_E_start, slider_E_start.value]),
-        mo.hstack([slider_E_end, slider_E_end.value]),
+        mo.hstack([slider_E_start, mo.md(f"{slider_E_start.value} (round {t_minus_round})")]),
+        mo.hstack([slider_E_end, mo.md(f"{slider_E_end.value} (round {t_plus_round})")]),
         mo.hstack([slider_gamma_star, slider_gamma_star.value]),
         mo.hstack([slider_yield_star, slider_yield_star.value])
         ], align='start', justify='start')
@@ -1132,9 +1274,9 @@ def _(
         cum_yield_factor = (1 + per_round_yield).cumprod(axis=1)
         # trailing cumulative yield over window
         return 100*(cum_yield_factor[:,window:] / cum_yield_factor[:,:-window] - 1)
-    
-    
-    
+
+
+
 
     def simulate_paths(target_bonding_rate = 50, inflation_change = 500):
         exog_cols = feature_selector.value
@@ -1155,7 +1297,7 @@ def _(
         total_supply_full = np.zeros((total_supply_paths.shape[0], total_supply_paths.shape[1] + len(df)))
         total_supply_full[:, :len(df)] = df['total-supply'].iloc[:].values / 1e18
         total_supply_full[:, len(df):] = total_supply_paths
-    
+
         P_full = np.zeros((P_paths.shape[0], P_paths.shape[1] + len(df)))
         P_full[:, :len(df)] = df['participation-rate'].iloc[:].values
         P_full[:, len(df):] = P_paths
@@ -1176,7 +1318,7 @@ def _(np, simulate_paths):
 
     def plot_box_and_whiskers(data, label: str, significance=5):
         data_cropped = crop_to_significance(data, significance)
-    
+
         return alt.Chart(pl.DataFrame({"value": data_cropped})).mark_boxplot(extent="min-max").encode(
             y=alt.Y("value:Q", axis=alt.Axis(title=label)).scale(zero=False)
         ).properties(width=400)
@@ -1252,7 +1394,7 @@ def _(
         'y': [73.38791078],
         'label': [threshold]
     }))
-    
+
     line = base.mark_rule(strokeDash=[4,4], color='red').encode(
         y='y:Q'
     )
