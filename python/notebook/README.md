@@ -1,94 +1,52 @@
-# Data Retrieval Notes
+# Notebook Data Notes
 
-This folder contains marimo notebooks used to analyze Livepeer emissions and participation risk. The notebooks consume datasets that are generated outside the notebook runtime. This document describes how the external data is retrieved.
+This folder contains marimo notebooks for Livepeer emissions and participation analysis.
 
-## Sources and retrieval methods
+## Data source workflow
 
-### 1) On-chain protocol state (Arbitrum)
-The primary on-chain dataset (daily snapshots of inflation, total supply, and bonded stake) is retrieved using the script:
+Notebooks consume prepared datasets. Data retrieval is handled by:
 
-- `python/script/fetch-data.py`
+- `python/script/data-fetching.py`
 
-This script performs two steps:
+The script can produce:
 
-1. **Get daily Arbitrum block numbers**
-   - Uses the Etherscan API for Arbitrum (`chainid=42161`) to resolve the block number closest to each day’s timestamp.
-   - Endpoint: `module=block`, `action=getblocknobytime`.
-   - Requires environment variable: `ETHERSCAN_API_KEY`.
+1. On-chain daily snapshots
+- Arbitrum daily block ticks
+- Livepeer state (`inflation`, `total-supply`, `bonded`)
 
-2. **Fetch historical contract state at those blocks**
-   - Uses a Web3 RPC connection to an Arbitrum archive node.
-   - Requires environment variable: `ARB_RPC_URL`.
-   - Contracts and ABIs are loaded from `protocol/deployments/arbitrumMainnet/`:
-     - `Minter.json` (inflation rate, total supply)
-     - `BondingManager.json` + `BondingManagerTarget.json` (total bonded stake)
+2. Daily enriched dataset
+- Yahoo Finance prices/volumes for default tickers: `LPT-USD`, `BTC-USD`, `ETH-USD`
+- Fear & Greed index from `https://api.alternative.me/fng/`
+- Joined dataset written to CSV
 
-The resulting JSON files are written to the project’s `../data/` directory:
+## Default files used by analysis
 
-- `../data/arbitrum-daily-blocks-22-24.json` (daily block numbers)
-- `../data/lpt-daily-data-22-24.json` (inflation, total supply, bonded, and dates)
+- `python/data/arbitrum-daily-blocks.json`
+- `python/data/lpt-daily-data.json`
+- `python/data/Data2022-2025.csv`
 
-The notebooks read these files via helpers in `python/src/data/`.
+## Reproduce data retrieval
 
-### 1b) Local on-chain daily JSON used in analysis
-The `python/notebook/Data Fetching.ipynb` notebook reads a local JSON export:
-
-- `lpt-daily-data-22-25.json`
-
-This file has the same shape as the JSON produced by `python/script/fetch-data.py` and is used as the base daily dataset in the notebook.
-
-### 2) Per-round historical dataset (CSV)
-The forecasting notebooks use a per-round CSV dataset (round-level participation and exogenous variables). The default path is set in:
-
-- `python/src/forecast/config.py` via `DEFAULT_ROUND_DATA_PATH`
-
-This file is expected to live outside the repo (e.g., under your `ShtukaResearch` data directory). The path can be overridden using:
-
-- `LPT_ROUND_DATA_PATH=/path/to/Data2022-2025[perRound].csv`
-
-The notebooks load this CSV using `python/src/forecast/data.py`.
-
-### 3) Exogenous market data (prices, volumes, sentiment)
-The per-round CSV also contains external market variables used for regressions and simulations, such as:
-
-- `fear_greed_index`
-- `btc_price_usd`, `eth_price_usd`, `lpt_price_usd`
-- `btc_volume`, `eth_volume`, `lpt_volume`
-
-In `python/notebook/Data Fetching.ipynb`, these are retrieved as follows:
-
-- Prices and volumes are pulled from Yahoo Finance using `yfinance` for the tickers `LPT-USD`, `BTC-USD`, `ETH-USD`, on a daily interval.
-- The Fear & Greed index is fetched from `https://api.alternative.me/fng/` (all available history), filtered to the same date range.
-
-The notebook merges these series with the on-chain daily JSON and writes:
-
-- `Data2022-2025.csv` (daily combined dataset)
-- `Data2022-2025[perRound].csv` (round-level dataset)
-
-The round-level dataset is produced by interpolating daily rows to round indices using ~1.142857 rounds/day and a nearest-neighbor pass for the date field. The saved file is the nearest-neighbor version.
-
-## Reproducing data retrieval
-
-1) Fetch on-chain daily state (example):
+From `python/`:
 
 ```bash
-python script/fetch-data.py --ticks --state --start-date 2022-01-01 --end-date 2024-01-01
+uv run python script/data-fetching.py --start-date 2022-01-01 --end-date 2024-01-01
 ```
 
-2) Point notebooks to the data paths via environment variables (recommended):
+For on-chain only:
 
 ```bash
-export LPT_DATA_PATH=../data/lpt-daily-data-22-24.json
-export LPT_ROUND_DATA_PATH=/path/to/Data2022-2025[perRound].csv
+uv run python script/data-fetching.py --start-date 2022-01-01 --end-date 2024-01-01 --ticks --state
 ```
 
-3) Run a notebook:
+For market merge only (using existing state JSON):
 
 ```bash
-marimo run python/notebook/emissions-history.py
+uv run python script/data-fetching.py --start-date 2022-01-01 --end-date 2024-01-01 --market --state-file python/data/lpt-daily-data.json
 ```
 
 ## Notes
 
-- The notebooks do not fetch data directly; they only load precomputed JSON/CSV files.
-- Ensure your RPC endpoint supports historical state queries (archive access) for the requested date range.
+- `data-fetching.py` is the canonical fetch script.
+- Legacy `fetch-data.py` has been removed.
+- Ensure your RPC endpoint has archive access for historical state reads.
