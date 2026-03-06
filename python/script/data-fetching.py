@@ -246,11 +246,8 @@ def _(
             return pd.DataFrame(columns=["date", "fear_greed_index"])
 
         df = pd.DataFrame(rows)
-
-        if pd.api.types.is_numeric_dtype(df["timestamp"]):
-            parsed_dates = pd.to_datetime(df["timestamp"].astype("int64"), unit="s", errors="coerce")
-        else:
-            parsed_dates = pd.to_datetime(df["timestamp"], errors="coerce", dayfirst=True)
+        timestamp_seconds = pd.to_numeric(df["timestamp"], errors="coerce")
+        parsed_dates = pd.to_datetime(timestamp_seconds, unit="s", errors="coerce")
 
         df["date"] = parsed_dates
         df = df[["date", "value"]].rename(columns={"value": "fear_greed_index"})
