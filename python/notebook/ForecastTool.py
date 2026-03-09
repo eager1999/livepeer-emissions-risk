@@ -78,8 +78,11 @@ def _(datetime_to_round, np, pd):
     # Load and prepare data
     # ------------------------------------------------------------
     import os
+    from pathlib import Path
+
     def load_data():
-        path = os.getenv("LPT_DATA_PATH", "/Users/sazisbekuu/Downloads/ShtukaResearch/Data2022-2025.csv")
+        default_path = Path(__file__).resolve().parents[1] / "data" / "Data.csv"
+        path = Path(os.getenv("LPT_DATA_PATH", str(default_path)))
         return pd.read_csv(path)
     df_raw = load_data()
 
