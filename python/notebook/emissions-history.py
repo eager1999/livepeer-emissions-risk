@@ -25,7 +25,7 @@ def _():
 @app.cell
 def _(ROUNDS_PER_YEAR, json, os, pl):
     # Data loading
-    DATA_PATH = os.getenv("LPT_DATA_PATH", "../data/lpt-daily-data-22-25.json")
+    DATA_PATH = os.getenv("LPT_DATA_PATH", "../data/lpt-daily-data.json")
 
     with open(DATA_PATH) as h:
         data_json = json.load(h)
@@ -90,7 +90,7 @@ def _(ROUNDS_PER_YEAR, json, os, pl):
         ]).with_columns([
             ((pl.col("return-trailing-1y") - 1) * 100).alias("return-trailing-1y-%"),
             ((pl.col("adjusted-return-trailing-1y") - 1) * 100).alias("adjusted-return-trailing-1y-%")
-        ])
+        ]).filter(pl.col("return-trailing-1y-%").is_not_null())
 
     PREPARATIONS = [
         load_df_from_json, 
