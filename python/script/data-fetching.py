@@ -31,7 +31,7 @@ def _():
 
     DEFAULT_TICKS_FILE = DATA_DIR / "arbitrum-daily-blocks.json"
     DEFAULT_STATE_FILE = DATA_DIR / "lpt-daily-data.json"
-    DEFAULT_MERGED_FILE = DATA_DIR / "Data2022-2025.csv"
+    DEFAULT_MERGED_FILE = DATA_DIR / "Data.csv"
 
     return (
         API_URL,
@@ -206,6 +206,13 @@ def _(
         df["date"] = pd.to_datetime(df["date"]).dt.date
         return df
 
+    def parse_api_dates(series: pd.Series) -> pd.Series:
+        """Parse API date fields that may be unix seconds or date strings."""
+        numeric_values = pd.to_numeric(series, errors="coerce")
+        parsed_from_unix = pd.to_datetime(numeric_values, unit="s", errors="coerce", utc=True)
+        parsed_from_text = pd.to_datetime(series, format="%Y-%m-%d", errors="coerce", utc=True)
+        return parsed_from_unix.fillna(parsed_from_text)
+
     def fetch_market_prices(start_date: str, end_date: str, tickers: list[str]) -> pd.DataFrame:
         try:
             import yfinance as yf
@@ -214,7 +221,9 @@ def _(
                 "yfinance is required for market enrichment. Install with: pip install yfinance"
             ) from exc
 
-        raw = yf.download(tickers, start=start_date, end=end_date, interval="1d", progress=False)
+        # yfinance treats the end bound as exclusive, so request one extra day.
+        end_exclusive = (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        raw = yf.download(tickers, start=start_date, end=end_exclusive, interval="1d", progress=False)
         if raw.empty:
             raise ValueError("No market data returned from yfinance for the selected range.")
 
@@ -246,15 +255,13 @@ def _(
             return pd.DataFrame(columns=["date", "fear_greed_index"])
 
         df = pd.DataFrame(rows)
-        timestamp_seconds = pd.to_numeric(df["timestamp"], errors="coerce")
-        parsed_dates = pd.to_datetime(timestamp_seconds, unit="s", errors="coerce")
 
-        df["date"] = parsed_dates
+        df["date"] = parse_api_dates(df["timestamp"])
         df = df[["date", "value"]].rename(columns={"value": "fear_greed_index"})
         df["fear_greed_index"] = pd.to_numeric(df["fear_greed_index"], errors="coerce")
 
-        start_ts = pd.to_datetime(start_date)
-        end_ts = pd.to_datetime(end_date)
+        start_ts = pd.Timestamp(start_date, tz="UTC")
+        end_ts = pd.Timestamp(end_date, tz="UTC")
         df = df[(df["date"] >= start_ts) & (df["date"] <= end_ts)]
         df["date"] = df["date"].dt.date
 

@@ -53,6 +53,6 @@ uv run python script/data-fetching.py --start-date 2022-01-01 --end-date 2024-01
 
 - `python/data/arbitrum-daily-blocks.json`
 - `python/data/lpt-daily-data.json`
-- `python/data/Data2022-2025.csv`
+- `python/data/Data.csv`
 
 All output paths are overridable via CLI flags.

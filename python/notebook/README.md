@@ -23,7 +23,7 @@ The script can produce:
 
 - `python/data/arbitrum-daily-blocks.json`
 - `python/data/lpt-daily-data.json`
-- `python/data/Data2022-2025.csv`
+- `python/data/Data.csv`
 
 ## Reproduce data retrieval
 
